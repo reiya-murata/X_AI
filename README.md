@@ -221,3 +221,7 @@ OPENAI_MOCK_MODE=true
 - 本番依存に含まれます。
 - `fixAvailable: false` を含むため、`npm audit fix --force` は実行していません。
 - Firebase/Google依存の安全なpatch/minor更新で解消できることが明確になったタイミングで再確認します。
+
+## Phase 5 運用ハードニング
+
+`npm run check:fast`、`check:security`、`check:data`、`check:full`で回帰・秘密情報・Schema・復旧を検証できます。詳細は [architecture](docs/architecture.md)、[Firestore Schema](docs/firestore-schema.md)、[backup/restore](docs/backup-restore.md)、[incident response](docs/incident-response.md)、[CI](docs/ci.md) を参照してください。

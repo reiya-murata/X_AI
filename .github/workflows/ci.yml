@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: x-ai-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CI: "true"
+      FIREBASE_PROJECT_ID: demo-x-reply-intelligence
+      GCLOUD_PROJECT: demo-x-reply-intelligence
+      GOOGLE_CLOUD_PROJECT: demo-x-reply-intelligence
+      OPENAI_MOCK_MODE: "true"
+      X_API_MOCK_MODE: "true"
+      ENABLE_REAL_OPENAI_TESTS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: functions
+      - run: npm run check:fast
+      - run: npm run check:security
+      - run: npm run test:phase38:quality
+      - run: npm run test:phase38:history
+      - run: npm run test:phase38:origin
+      - run: npm run test:phase4
+      - run: npm run test:phase41:safety
+      - run: npm run test:phase5:a11y
+      - run: npm run test:rules
+      - run: npm run test:phase5:data
+      - run: npm run check:release
+      - run: npm audit --audit-level=critical
+      - name: Functions regression
+        working-directory: functions
+        run: npm run lint && npm test && npm run test:phase35 && npm run test:phase37:safety && npm run test:phase37:closure && npm run test:phase4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-manifest
+          path: dist/release-manifest.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -379,7 +379,7 @@ exports.saveReplyDraftSelection = onCall({ region: "asia-northeast1" }, async (r
 
 exports.transitionCandidateWorkflow = onCall({ region: "asia-northeast1" }, async (request) => {
   const user = requireAdmin(request);
-  return transitionCandidate({ db, admin, actorUid: user.uid, candidatePostId: String(request.data?.candidatePostId || ""), to: String(request.data?.to || ""), safeMetadata: request.data?.safeMetadata || {} });
+  return transitionCandidate({ db, admin, actorUid: user.uid, candidatePostId: String(request.data?.candidatePostId || ""), to: String(request.data?.to || ""), safeMetadata: request.data?.safeMetadata || {}, operationId: request.data?.operationId, correlationId: request.data?.correlationId });
 });
 
 exports.saveWorkflowReplyDraft = onCall({ region: "asia-northeast1" }, async (request) => {
@@ -389,13 +389,13 @@ exports.saveWorkflowReplyDraft = onCall({ region: "asia-northeast1" }, async (re
 
 exports.recordReplyIntentOpened = onCall({ region: "asia-northeast1" }, async (request) => {
   const user = requireAdmin(request);
-  return recordIntentOpened({ db, admin, actorUid: user.uid, candidatePostId: String(request.data?.candidatePostId || ""), replyDraftId: String(request.data?.replyDraftId || ""), finalReplyText: request.data?.finalReplyText });
+  return recordIntentOpened({ db, admin, actorUid: user.uid, candidatePostId: String(request.data?.candidatePostId || ""), replyDraftId: String(request.data?.replyDraftId || ""), finalReplyText: request.data?.finalReplyText, operationId: request.data?.operationId, correlationId: request.data?.correlationId });
 });
 
 exports.recordManualSendResult = onCall({ region: "asia-northeast1" }, async (request) => {
   const user = requireAdmin(request);
   const data = request.data || {};
-  return recordManualSendResult({ db, admin, actorUid: user.uid, candidatePostId: String(data.candidatePostId || ""), sent: data.sent === true, finalReplyText: data.finalReplyText, replyUrl: data.replyUrl, memo: data.memo, notSentReason: data.notSentReason, feedback: data.feedback });
+  return recordManualSendResult({ db, admin, actorUid: user.uid, candidatePostId: String(data.candidatePostId || ""), sent: data.sent === true, finalReplyText: data.finalReplyText, replyUrl: data.replyUrl, memo: data.memo, notSentReason: data.notSentReason, feedback: data.feedback, operationId: data.operationId, correlationId: data.correlationId });
 });
 
 exports.saveReplyUsageFeedback = onCall({ region: "asia-northeast1" }, async (request) => {

@@ -1,5 +1,7 @@
 const { getReleaseInfo } = require("./releaseInfo.cjs");
 const { evaluateServerEnvironment } = require("../functions/src/environmentSafety");
+const fs = require("node:fs");
+const path = require("node:path");
 
 function formatLine(label, value) {
   return `${label}: ${value}`;
@@ -20,6 +22,8 @@ function main() {
     `X API=${safety.flags.xApiMock ? "Mock" : "Real"}`,
   ].join(" / ");
   const unconfirmedItems = releaseInfo.unconfirmedItems.map((item) => `- ${item}`).join("\n");
+  const manifestPath = path.resolve(__dirname, "../dist/release-manifest.json");
+  const artifact = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, "utf8")) : null;
   const output = [
     "Release Status",
     formatLine("releaseCandidateVersion", releaseInfo.releaseCandidateVersion),
@@ -30,6 +34,7 @@ function main() {
     formatLine("projectId", projectId),
     formatLine("mockState", mockState),
     formatLine("emulatorState", emulatorState),
+    formatLine("releaseManifest", artifact ? `確認済み / assets=${Object.keys(artifact.assetFiles || {}).length} / automaticPosting=${artifact.automaticPosting}` : "未生成"),
     formatLine("unconfirmedItems", ""),
     unconfirmedItems,
   ].join("\n");

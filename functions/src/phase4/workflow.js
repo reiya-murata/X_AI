@@ -1,10 +1,10 @@
 const { FieldValue } = require("firebase-admin/firestore");
 const { HttpsError } = require("firebase-functions/v2/https");
 const { assertRuntimeOperationAllowed } = require("../environmentSafety");
+const { writeSafeOperationLog } = require("../logging/safeOperationLog");
 
 const WORKFLOW_VERSION = 1;
 const HISTORY_LIMIT = 30;
-const OPERATION_LOG_LIMIT_DAYS = 90;
 
 const LEGACY_STATUS_MAP = Object.freeze({
   candidate: "discovered",
@@ -47,7 +47,7 @@ function assertTransition(from, to) {
   }
 }
 
-async function transitionCandidate({ db, candidatePostId, to, actorUid, safeMetadata = {}, extra = {} }) {
+async function transitionCandidate({ db, candidatePostId, to, actorUid, safeMetadata = {}, extra = {}, operationId = null, correlationId = null }) {
   assertRuntimeOperationAllowed(process.env);
   const ref = db.collection("candidatePosts").doc(candidatePostId);
   const result = await db.runTransaction(async (transaction) => {
@@ -69,7 +69,7 @@ async function transitionCandidate({ db, candidatePostId, to, actorUid, safeMeta
     }, { merge: true });
     return { from, to, duplicate: false };
   });
-  if (!result.duplicate) await writeOperationLog({ db, actorUid, actionType: `status_${to}`, candidatePostId, safeMetadata });
+  if (!result.duplicate) await writeSafeOperationLog({ db, actorUid, actionType: `status_${to}`, candidatePostId, safeMetadata: { ...safeMetadata, from: result.from, to }, operationId, correlationId });
   return { ok: true, ...result };
 }
 
@@ -86,22 +86,22 @@ async function saveWorkflowDraft({ db, admin, candidatePostId, replyDraftId, edi
   if (["ready", "needs_review", "not_sent"].includes(current)) {
     await transitionCandidate({ db, admin, candidatePostId, to: "edited", actorUid, safeMetadata: { replyDraftId } });
   } else {
-    await writeOperationLog({ db, actorUid, actionType: "reply_edited", candidatePostId, replyDraftId });
+    await writeSafeOperationLog({ db, actorUid, actionType: "reply_edited", candidatePostId, replyDraftId });
   }
   return { ok: true, finalReplyText: text, editCharacterCount: characterDiff(originalText, text) };
 }
 
-async function recordIntentOpened({ db, admin, candidatePostId, replyDraftId, finalReplyText, actorUid }) {
+async function recordIntentOpened({ db, admin, candidatePostId, replyDraftId, finalReplyText, actorUid, operationId = null, correlationId = null }) {
   const text = String(finalReplyText || "").trim();
   if (!text) throw new HttpsError("invalid-argument", "返信文がありません。");
   return transitionCandidate({
     db, admin, candidatePostId, to: "intent_opened", actorUid,
     safeMetadata: { replyDraftId },
-    extra: { intentOpenedAt: FieldValue.serverTimestamp(), pendingSendConfirmation: true, latestReplyDraftId: replyDraftId || null, finalReplyText: text },
+    extra: { intentOpenedAt: FieldValue.serverTimestamp(), pendingSendConfirmation: true, latestReplyDraftId: replyDraftId || null, finalReplyText: text }, operationId, correlationId,
   });
 }
 
-async function recordManualSendResult({ db, admin, candidatePostId, sent, actorUid, finalReplyText, replyUrl, memo, notSentReason, feedback }) {
+async function recordManualSendResult({ db, admin, candidatePostId, sent, actorUid, finalReplyText, replyUrl, memo, notSentReason, feedback, operationId = null, correlationId = null }) {
   const to = sent ? "sent_manual" : "not_sent";
   const extra = sent ? {
     sentAt: FieldValue.serverTimestamp(),
@@ -115,7 +115,7 @@ async function recordManualSendResult({ db, admin, candidatePostId, sent, actorU
     sendMemo: shortText(memo, 300),
     pendingSendConfirmation: false,
   };
-  const result = await transitionCandidate({ db, admin, candidatePostId, to, actorUid, safeMetadata: { feedback: allowedFeedback(feedback), notSentReason: extra.notSentReason || null }, extra });
+  const result = await transitionCandidate({ db, admin, candidatePostId, to, actorUid, safeMetadata: { feedback: allowedFeedback(feedback), notSentReason: extra.notSentReason || null }, extra, operationId, correlationId });
   if (feedback) await saveUsageFeedback({ db, candidatePostId, actorUid, feedback, memo });
   return result;
 }
@@ -126,7 +126,7 @@ async function saveUsageFeedback({ db, candidatePostId, actorUid, feedback, shor
   if (!value) throw new HttpsError("invalid-argument", "利用結果を確認してください。");
   const id = `${candidatePostId}_${Date.now()}`;
   await db.collection("replyUsageFeedback").doc(id).set({ schemaVersion: 1, candidatePostId, feedback: value, shortReason: shortText(shortReason, 120), memo: shortText(memo, 300), actorUid, createdAt: FieldValue.serverTimestamp() });
-  await writeOperationLog({ db, actorUid, actionType: "usage_feedback_saved", candidatePostId, safeMetadata: { feedback: value } });
+  await writeSafeOperationLog({ db, actorUid, actionType: "usage_feedback_saved", candidatePostId, safeMetadata: { feedback: value } });
   return { ok: true, id };
 }
 
@@ -142,7 +142,7 @@ async function saveOutcomeMetrics({ db, candidatePostId, actorUid, metrics }) {
   };
   const ref = db.collection("replyOutcomeMetrics").doc();
   await ref.set(payload);
-  await writeOperationLog({ db, actorUid, actionType: "outcome_recorded", candidatePostId, safeMetadata: { likes: payload.likes, replies: payload.replies, reposts: payload.reposts } });
+  await writeSafeOperationLog({ db, actorUid, actionType: "outcome_recorded", candidatePostId, safeMetadata: { likes: payload.likes, replies: payload.replies, reposts: payload.reposts } });
   return { ok: true, id: ref.id };
 }
 
@@ -163,14 +163,6 @@ async function getOperationsSummary({ db }) {
     adoptedRate: rate(countFeedback("adopted"), feedbacks.length), editedAndUsedRate: rate(countFeedback("edited_and_used"), feedbacks.length),
     insufficientData: rows.length < 5,
   };
-}
-
-async function writeOperationLog({ db, actorUid, actionType, candidatePostId, replyDraftId = null, safeMetadata = {} }) {
-  const clean = {};
-  for (const [key, value] of Object.entries(safeMetadata || {})) {
-    if (["feedback", "notSentReason", "replyDraftId", "likes", "replies", "reposts"].includes(key)) clean[key] = value;
-  }
-  await db.collection("operationLogs").add({ schemaVersion: 1, actionType, candidatePostId, replyDraftId, actorUid: actorUid || null, safeMetadata: clean, retentionDays: OPERATION_LOG_LIMIT_DAYS, timestamp: FieldValue.serverTimestamp() });
 }
 
 function selectedDraftText(draft) { const key = draft.selectedCandidateKey || draft.recommendedCandidateKey || "A"; return (draft.candidates || []).find((item) => item.candidateKey === key)?.text || draft.candidates?.[0]?.text || ""; }

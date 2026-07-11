@@ -1,0 +1,10 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const source = fs.readFileSync(path.resolve(__dirname, "../src/main.jsx"), "utf8");
+const css = fs.readFileSync(path.resolve(__dirname, "../src/styles.css"), "utf8");
+assert.match(source, /aria-live=/);
+assert.match(source, /<label/);
+assert.match(css, /:focus-visible/);
+assert.match(css, /prefers-reduced-motion/);
+console.log(JSON.stringify({ ok: true, labels: true, liveRegion: true, focusVisible: true, reducedMotion: true }, null, 2));

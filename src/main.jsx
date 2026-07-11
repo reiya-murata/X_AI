@@ -621,7 +621,7 @@ function App() {
         )}
       </section>
 
-      {toast && <div className="toast" role="status">{toast}</div>}
+      {toast && <div className="toast" role="status" aria-live="polite" aria-atomic="true">{toast}</div>}
     </main>
   );
 }
