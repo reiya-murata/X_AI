@@ -1,0 +1,36 @@
+{
+  "name": "x-reply-intelligence-functions",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "test": "node scripts/runChecks.js",
+    "test:ai": "node scripts/runAiChecks.js",
+    "test:phase35": "node scripts/runPhase35Checks.js",
+    "test:phase37:safety": "node scripts/runPhase37SafetyChecks.js",
+    "test:phase37:closure": "node scripts/runPhase37ClosureChecks.js",
+    "test:phase4": "node scripts/runPhase4Checks.js",
+    "emulator:phase4:e2e": "node scripts/emulatorPhase4E2E.js",
+    "test:phase37:real": "node scripts/runPhase37Real.js",
+    "seed:dev": "node scripts/seedDev.js",
+    "emulator:seed": "node scripts/seedEmulator.js",
+    "emulator:create-admin": "node scripts/createEmulatorAdmin.js",
+    "emulator:e2e": "node scripts/emulatorE2E.js",
+    "emulator:e2e:ai": "node scripts/emulatorE2eAi.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.2",
+    "firebase-functions": "^6.2.0",
+    "openai": "^5.10.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "globals": "^15.14.0"
+  }
+}

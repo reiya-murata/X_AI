@@ -1,0 +1,95 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function admin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    match /creatorProfiles/{docId} {
+      allow read: if admin();
+      allow write: if admin();
+    }
+
+    match /experienceLibrary/{docId} {
+      allow read: if admin();
+      allow write: if admin();
+    }
+
+    match /opinionLibrary/{docId} {
+      allow read: if admin();
+      allow write: if admin();
+    }
+
+    match /writingRules/{docId} {
+      allow read: if admin();
+      allow write: if admin();
+    }
+
+    match /searchProfiles/{docId} {
+      allow read: if admin();
+      allow write: if admin();
+    }
+
+    match /watchListSettings/{docId} {
+      allow read, write: if admin();
+    }
+
+    match /candidatePosts/{docId} {
+      allow read, update: if admin();
+      allow create, delete: if false;
+    }
+
+    match /searchRuns/{docId} {
+      allow read: if admin();
+      allow write: if false;
+    }
+
+    match /replyDrafts/{docId} {
+      allow read, update: if admin();
+      allow create, delete: if false;
+    }
+
+    match /postedReplies/{docId} {
+      allow read: if admin();
+      allow write: if false;
+    }
+
+    match /recentContent/{docId} {
+      allow read: if admin();
+      allow write: if false;
+    }
+
+    match /writerInstructions/{docId} {
+      allow read, write: if admin();
+    }
+
+    match /filterRuleSets/{docId} {
+      allow read, write: if admin();
+    }
+
+    match /xConnections/{docId} {
+      allow read, write: if false;
+    }
+
+    match /xOAuthStates/{docId} {
+      allow read, write: if false;
+    }
+
+    match /xApiUsageLogs/{docId} {
+      allow read, write: if false;
+    }
+
+    match /timelineSyncStates/{docId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
