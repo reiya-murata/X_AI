@@ -10,7 +10,7 @@ function runGit(args) {
 }
 
 function getReleaseCandidateVersion(env = process.env) {
-  return env.RELEASE_CANDIDATE_VERSION || "phase4.2-rc1";
+  return env.RELEASE_CANDIDATE_VERSION || "phase5.0-rc1";
 }
 
 function getBuildTimestamp() {

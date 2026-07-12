@@ -5,9 +5,9 @@ const { getReleaseInfo } = require("./releaseInfo.cjs");
 
 const repoRoot = path.resolve(__dirname, "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
-const info = getReleaseInfo({ RELEASE_CANDIDATE_VERSION: "phase4.2-rc1" });
+const info = getReleaseInfo({ RELEASE_CANDIDATE_VERSION: "phase5.0-rc1" });
 
-assert.equal(info.releaseCandidateVersion, "phase4.2-rc1");
+assert.equal(info.releaseCandidateVersion, "phase5.0-rc1");
 assert.match(info.gitCommitHash, /^[0-9a-f]+|unknown$/);
 assert.ok(Array.isArray(info.unconfirmedItems) && info.unconfirmedItems.length >= 5);
 assert.equal(packageJson.scripts["release:status"], "node scripts/releaseStatus.cjs");

@@ -57,9 +57,9 @@ ENABLE_REAL_OPENAI_TESTS=true CONFIRM_REAL_OPENAI_PREFLIGHT=true npm run preflig
 
 seed、dev admin、local-mockは `demo-` projectとFirebase Emulatorの組み合わせに限定されています。本番Firestoreへ自動seedするコマンドはありません。
 
-## Phase 4.2 RC固定と運用開始
+## Release Candidateと運用開始
 
-現在の安定版は `phase4.2-rc1` として表示されます。ビルド時のGit commit、build日時、dirty状態は本番準備画面と `npm run release:status` で確認できます。
+現在の安定版は `phase5.0-rc1` として表示されます。ビルド時のGit commit、build日時、dirty状態は本番準備画面と `npm run release:status` で確認できます。
 
 運用開始前の一括確認は次のコマンドを使います。
 
@@ -116,7 +116,7 @@ npm run emulators
 管理者を作成します。パスワードはログに表示されません。
 
 ```bash
-FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
+FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9097 \
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 \
 FIREBASE_PROJECT_ID=demo-x-reply-intelligence \
 EMULATOR_ADMIN_EMAIL=admin@example.local \
@@ -124,7 +124,7 @@ EMULATOR_ADMIN_PASSWORD='your-local-password' \
 npm run emulator:create-admin
 ```
 
-ローカル開発では `dev-admin@local.test` / `local-dev-only` を自動作成します。`npm run dev:local` を使うと、Emulator起動・seed・自動ログイン・Vite起動までをまとめて実行できます。ローカルの品質タブは `VITE_DEFAULT_TAB=quality` または `?tab=quality` で開けます。
+ローカル開発では `dev-admin@local.test` / `local-dev-only` を自動作成します。`npm run dev:local` を使うと、Emulator起動・seed・自動ログイン・Vite起動までをまとめて実行できます。通常の `dev:local` は候補画面を初期表示し、品質Labを無効にします。品質Labはlocalhost、demo Emulatorに加えて `VITE_ENABLE_QUALITY_LAB=true` を明示した開発者モードでのみ利用します。
 
 seedとMock E2E:
 
