@@ -25,8 +25,10 @@ npm run preflight:production
 
 ## 2. OpenAI復旧確認
 
+実行前に、現在のシェルで`OPENAI_API_KEY`が設定済みであることを確認します。キー自体は表示しません。runnerは`OPENAI_MOCK_MODE=false`と`ENABLE_REAL_OPENAI_TESTS=true`が揃わない場合、安全にskipします。
+
 ```bash
-npm run test:phase37:real
+OPENAI_MOCK_MODE=false ENABLE_REAL_OPENAI_TESTS=true npm run test:phase37:real
 ```
 
 期待結果:
@@ -40,7 +42,7 @@ npm run test:phase37:real
 ## 3. 段階検証
 
 ```bash
-OPENAI_MOCK_MODE=false npm run test:phase37:real
+OPENAI_MOCK_MODE=false ENABLE_REAL_OPENAI_TESTS=true npm run test:phase37:real
 ```
 
 期待結果:
@@ -115,4 +117,3 @@ npm run preflight:production
 - 問題のFunctionsを直前の確認済み版へ戻す
 - Firestore schema は後方互換を維持する
 - migration は dry-run を必須にする
-
