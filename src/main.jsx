@@ -876,6 +876,7 @@ function EmptyCandidates() {
 function CandidateCard({ candidate, notify, setTestPost, setActiveTab, onAiAction, busy, aiState, onSelect, checked, onToggle, compact, selected }) {
   const latestDraft = candidate.replyDrafts?.[0] || null;
   const hasReplyDraft = hasUsableReplyDraft(candidate, aiState);
+  const shouldReply = resolveShouldReply(candidate, aiState);
   const draftText = candidate.finalReplyText || candidate.recommendedReplyText || latestDraft?.candidates?.[0]?.text || aiState?.adapterOutput?.replyText || "";
   const displayStatus = resolveDisplayedWorkflowStatus(candidate, aiState);
   const copyDraft = async () => {
@@ -888,7 +889,8 @@ function CandidateCard({ candidate, notify, setTestPost, setActiveTab, onAiActio
       <div className="compact-candidate-body">
         <div className="compact-candidate-head"><strong>{candidate.authorName}</strong><span>@{candidate.authorUsername}</span>{selected && <span className="selected-label">選択中</span>}</div>
         <p>{candidate.text}</p>
-        <div className="topic-row"><span className="workflow-status">{formatWorkflowStatus(candidate, aiState)}</span><span>{(candidate.sourceTypes || []).map(formatCandidateSourceTypeLabel).join(" / ") || "未分類"}</span><span>優先度 {candidate.rank || Math.round(candidate.scores?.total || 0) || "-"}</span></div>
+        <div className="topic-row"><span className="workflow-status">{shouldReply ? formatWorkflowStatus(candidate, aiState) : "返信対象外"}</span><span>{(candidate.sourceTypes || []).map(formatCandidateSourceTypeLabel).join(" / ") || "未分類"}</span><span>優先度 {candidate.rank || Math.round(candidate.scores?.total || 0) || "-"}</span></div>
+        {!shouldReply && <p className="workflow-note">{getReplyTargetReason(candidate, aiState)}</p>}
       </div>
       <button type="button" className={selected ? "primary-action" : "quiet-action"} onClick={onSelect}>{selected ? "表示中" : "開く"}</button>
     </article>
@@ -970,6 +972,7 @@ function CandidateCard({ candidate, notify, setTestPost, setActiveTab, onAiActio
 
 function CandidateDetail({ candidate, aiState, notify, onClose, onAiAction, busy, onMove, canPrevious, canNext }) {
   const hasReplyDraft = hasUsableReplyDraft(candidate, aiState);
+  const shouldReply = resolveShouldReply(candidate, aiState);
   const originalText = hasReplyDraft ? (candidate.recommendedReplyText || aiState?.decision?.replies?.[aiState?.recommendedCandidateKey || "A"]?.text || aiState?.adapterOutput?.replyText || "") : "";
   const draftId = candidate.latestReplyDraftId || aiState?.replyDraftId || "";
   const [text, setText] = useState(candidate.finalReplyText || originalText);
@@ -982,6 +985,7 @@ function CandidateDetail({ candidate, aiState, notify, onClose, onAiAction, busy
   const storedCandidateStatus = normalizeWorkflowStatus(candidate);
   const candidateStatus = resolveDisplayedWorkflowStatus(candidate, aiState);
   const hasWarnings = hasCurrentGenerationWarnings(candidate, aiState);
+  const selectedContextLabels = formatSelectedContextLabels(candidate, aiState);
   useEffect(() => { setText(candidate.finalReplyText || originalText); setShowSendCheck(candidate.pendingSendConfirmation === true || candidateStatus === "intent_opened"); }, [candidate.postId, candidate.finalReplyText, candidate.pendingSendConfirmation, candidateStatus, originalText]);
   const run = async (task, success) => { if (saving) return; setSaving(true); try { await task(); notify(success); } catch (error) { notify(formatOperationalError(error, "保存に失敗しました。認証とFirestore接続を確認して再試行してください。")); } finally { setSaving(false); } };
   const save = () => run(() => saveWorkflowReplyDraft({ candidatePostId: candidate.postId, replyDraftId: draftId, editedText: text }), "返信文を保存しました");
@@ -990,10 +994,20 @@ function CandidateDetail({ candidate, aiState, notify, onClose, onAiAction, busy
   return <section className="workflow-detail" aria-label="候補の詳細">
     <div className="panel-title"><div><span className="workflow-status">{formatWorkflowStatus(candidate, aiState)}</span><h3>{candidate.authorName} <small>@{candidate.authorUsername}</small></h3><small>{(candidate.sourceTypes || []).map(formatCandidateSourceTypeLabel).join(" / ") || "取得元不明"}</small></div><button className="icon-action" onClick={onClose} aria-label="詳細を閉じる"><X size={18} /></button></div>
     <div className="workflow-source"><strong>元投稿</strong><p>{candidate.text}</p><small>{formatDate(candidate.createdAt)} ・ {(candidate.sourceTypes || []).map(formatCandidateSourceTypeLabel).join(" / ")}</small></div>
-    <div className="workflow-reply"><strong>返信案</strong><textarea value={text} onChange={(event) => setText(event.target.value)} rows={6} maxLength={280} /><div className="detail-meta"><span>{text.length}文字</span><span>{candidate.aiDecision?.generationReason || candidate.aiAssessment?.decisionSummary || "ローカル候補"}</span><span>{claimLevelLabels[candidate.aiDecision?.claimLevel] || "断定リスク：未判定"}</span></div></div>
+    {!shouldReply ? (
+      <div className="workflow-no-reply"><strong>返信対象外</strong><p>{getReplyTargetReason(candidate, aiState)}</p><small>返信案はありません。必要なら保管または不採用に進めます。</small></div>
+    ) : (
+      <>
+        <div className="workflow-context">
+          <strong>返信に使った文脈</strong>
+          {selectedContextLabels.length > 0 ? <ul className="quality-list">{selectedContextLabels.slice(0, 2).map((item) => <li key={item}>{item}</li>)}</ul> : <p className="profile-copy">固有文脈は使用していません。</p>}
+        </div>
+        <div className="workflow-reply"><strong>返信案</strong><textarea value={text} onChange={(event) => setText(event.target.value)} rows={6} maxLength={280} /><div className="detail-meta"><span>{text.length}文字</span><span>{candidate.aiDecision?.generationReason || candidate.aiAssessment?.decisionSummary || "ローカル候補"}</span><span>{claimLevelLabels[candidate.aiDecision?.claimLevel] || "断定リスク：未判定"}</span></div></div>
+      </>
+    )}
     {hasWarnings && <div className="workflow-warning"><AlertTriangle size={18} /><div><strong>要確認</strong><p>{(candidate.aiDecision?.warnings || candidate.aiAssessment?.riskFlags || aiState?.adapterOutput?.warnings || []).join(" / ")}</p></div></div>}
-    {hasReplyDraft && storedCandidateStatus === "generation_failed" && (candidate.generationError || candidate.generationErrorCode) && <details className="technical-info"><summary>技術情報</summary><p>以前の生成失敗: {candidate.generationError || candidate.generationErrorCode}</p></details>}
-    <div className="action-row"><button className="quiet-action" onClick={save} disabled={saving || !draftId}>{saving ? "保存中" : "編集を保存"}</button><button className="quiet-action" onClick={() => setText(originalText)} disabled={saving}>元に戻す</button><button className="primary-action" onClick={openIntent} disabled={saving || !text.trim()}><ExternalLink size={17} />Web IntentでXを開く</button><button className="quiet-action" onClick={() => onAiAction(candidate, "process")} disabled={busy}>モック生成</button><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "dismissed" }), "不採用にしました")}>不採用</button></div>
+    {(storedCandidateStatus === "generation_failed" || candidate.generationError || candidate.generationErrorCode) && (candidate.generationError || candidate.generationErrorCode) && <details className="technical-info"><summary>技術情報</summary><p>以前の生成失敗: {candidate.generationError || candidate.generationErrorCode}</p></details>}
+    {shouldReply ? <div className="action-row"><button className="quiet-action" onClick={save} disabled={saving || !draftId}>{saving ? "保存中" : "編集を保存"}</button><button className="quiet-action" onClick={() => setText(originalText)} disabled={saving}>元に戻す</button><button className="primary-action" onClick={openIntent} disabled={saving || !text.trim()}><ExternalLink size={17} />Web IntentでXを開く</button><button className="quiet-action" onClick={() => onAiAction(candidate, "process")} disabled={busy}>モック生成</button><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "dismissed" }), "不採用にしました")}>不採用</button></div> : <div className="action-row"><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "archived" }), "保管しました")}>保管</button><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "dismissed" }), "不採用にしました")}>不採用</button></div>}
     <div className="detail-navigation"><button className="quiet-action" disabled={!canPrevious} onClick={() => onMove(-1)}><ChevronLeft size={17} />前の候補</button><button className="quiet-action" disabled={!canNext} onClick={() => onMove(1)}>次の候補<ChevronRight size={17} /></button></div>
     {showSendCheck && <div className="send-confirm"><h4>Xで返信を送信しましたか？</h4><div className="form-grid"><label>利用結果<select value={feedback} onChange={(event) => setFeedback(event.target.value)}>{Object.entries(feedbackLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>返信URL（任意）<input value={replyUrl} onChange={(event) => setReplyUrl(event.target.value)} placeholder="https://x.com/..." /></label><label>未送信の理由<select value={notSentReason} onChange={(event) => setNotSentReason(event.target.value)}>{Object.entries(notSentReasonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div><div className="action-row"><button className="primary-action" onClick={() => recordSend(true)} disabled={saving}>送信した</button><button className="quiet-action" onClick={() => recordSend(false)} disabled={saving}>送信しなかった</button><button className="quiet-action" onClick={() => setShowSendCheck(false)}>あとで確認</button></div></div>}
     {candidateStatus === "sent_manual" && <OutcomeForm value={outcome} setValue={setOutcome} onSave={() => run(() => saveReplyOutcomeMetrics({ candidatePostId: candidate.postId, metrics: outcome }), "反応を記録しました")} saving={saving} />}
@@ -1011,6 +1025,30 @@ function sortCandidates(a, b, mode, replyDraftLookup = {}) {
   if (mode === "review") return Number(resolveDisplayedWorkflowStatus(b, replyDraftLookup[b.postId]) === "needs_review") - Number(resolveDisplayedWorkflowStatus(a, replyDraftLookup[a.postId]) === "needs_review");
   if (mode === "priority") return (b.scores?.total || 0) - (a.scores?.total || 0) || new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
   return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+}
+
+function resolveShouldReply(candidate, aiState) {
+  if (typeof aiState?.decision?.shouldReply === "boolean") return aiState.decision.shouldReply;
+  if (typeof candidate?.aiDecision?.shouldReply === "boolean") return candidate.aiDecision.shouldReply;
+  if (typeof candidate?.aiAssessment?.shouldReply === "boolean") return candidate.aiAssessment.shouldReply;
+  return true;
+}
+
+function getReplyTargetReason(candidate, aiState) {
+  return candidate?.aiDecision?.decisionSummary
+    || candidate?.aiAssessment?.decisionSummary
+    || aiState?.decision?.decisionSummary
+    || "固有文脈が薄いため、返信対象外です。";
+}
+
+function formatSelectedContextLabels(candidate, aiState) {
+  const ids = [...new Set(aiState?.adapterOutput?.selectedContextIds || candidate?.aiDecision?.selectedContextIds || [])];
+  const contextMap = new Map([
+    ...seedData.experiences.map((item) => [item.experienceId, item.title || item.name || item.experienceId]),
+    ...seedData.experiences.map((item) => [item.projectId, item.title || item.name || item.projectId]),
+    ...seedData.opinions.map((item) => [item.opinionId, item.statement || item.opinionId]),
+  ]);
+  return ids.map((id) => contextMap.get(id) || id);
 }
 
 function ExcludedPanel({ posts }) {

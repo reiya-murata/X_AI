@@ -12,7 +12,7 @@ function evaluateServerEnvironment(env = process.env, mode = "local") {
 
   if (production && openAiMock) add("production_mock", "failed", "本番環境でOpenAIモックが有効です。", "OPENAI_MOCK_MODE=falseへ変更してください。");
   if (production && (firestoreEmulator || authEmulator)) add("production_emulator", "failed", "本番環境でFirebase Emulatorが設定されています。", "Emulator host環境変数を削除してください。");
-  if (demoProject && !openAiMock) add("demo_real_openai", "failed", "demo projectで実OpenAIが有効です。", "OPENAI_MOCK_MODE=trueへ戻してください。");
+  if (demoProject && !openAiMock && env.ENABLE_REAL_OPENAI_TESTS !== "true") add("demo_real_openai", "failed", "demo projectで実OpenAIが有効です。", "OPENAI_MOCK_MODE=trueへ戻してください。");
   if (demoProject && (!firestoreEmulator || !authEmulator)) add("demo_missing_emulator", "failed", "demo projectでEmulator接続が不足しています。", "AuthとFirestore Emulatorを起動してください。");
   if (!demoProject && (firestoreEmulator || authEmulator)) add("production_project_emulator", "failed", "本番候補projectとEmulator設定が混在しています。", "projectと接続先を揃えてください。");
   if (mode === "local" && !demoProject) add("local_non_demo", "failed", "local preflightはdemo project限定です。", "demo-で始まるproject IDを指定してください。");

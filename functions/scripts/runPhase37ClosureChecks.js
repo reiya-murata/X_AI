@@ -69,7 +69,22 @@ async function main() {
   });
   assert.equal(apiCalls, 1);
   assert.equal(result.finalRecommendation, "ready");
+  assert.ok((result.decision.selectedExperienceIds || []).length > 0);
+  assert.ok((result.adapterOutput.selectedContextIds || []).length > 0);
   assert.ok(fakeDb.getWriteCount() > 0);
+
+  apiCalls = 0;
+  const movieResult = await analysisClient.processCandidateWithAi({
+    db: fakeDb,
+    admin: fakeAdmin(),
+    candidatePostId: "movie-1",
+    firebaseUid: "uid-2",
+  });
+  assert.equal(apiCalls, 0);
+  assert.equal(movieResult.shouldReply, false);
+  assert.equal(movieResult.finalRecommendation, "skip");
+  assert.deepEqual(movieResult.decision.selectedExperienceIds || [], []);
+  assert.deepEqual(movieResult.decision.selectedOpinionIds || [], []);
 
   client.getOpenAiClient = originalGetOpenAiClient;
   client.runModeration = originalRunModeration;
@@ -133,19 +148,31 @@ function seedDocs() {
     },
     recentContent: {},
     candidatePosts: {
-      p1: {
-        postId: "p1",
-        text: "社内FAQは未回答を拾って改善へ戻す流れがないと、導入後に止まりがちです。",
+    p1: {
+      postId: "p1",
+      text: "社内FAQは未回答を拾って改善へ戻す流れがないと、導入後に止まりがちです。",
         authorName: "AI業務改善メモ",
         authorUsername: "ai_ops_note",
         createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
         metrics: { likes: 10, replies: 2, reposts: 1, quotes: 0 },
         authorMetrics: { followers: 1000 },
-        hardFilter: { passed: true },
-        status: "candidate",
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-      },
+      hardFilter: { passed: true },
+      status: "candidate",
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     },
+    "movie-1": {
+      postId: "movie-1",
+      text: "最近見た映画がかなり面白かった。映像も音楽も良くて、もう一度映画館で見たい。",
+      authorName: "映画メモ",
+      authorUsername: "movie_notes",
+      createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      metrics: { likes: 2, replies: 0, reposts: 0, quotes: 0 },
+      authorMetrics: { followers: 120 },
+      hardFilter: { passed: true },
+      status: "candidate",
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    },
+  },
     replyDrafts: {},
     aiUsageLogs: {},
   };

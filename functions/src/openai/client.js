@@ -34,7 +34,11 @@ async function runStructuredOutput({ model, input, schema, schemaName, timeoutMs
         format: zodTextFormat(schema, schemaName),
       },
     }, { signal: controller.signal }));
-    const outputParsed = response.output_parsed ?? response.output?.[0]?.content?.[0]?.parsed ?? null;
+    const outputParsed = response.output_parsed
+      ?? response.output?.[0]?.content?.[0]?.parsed
+      ?? parseJsonOutput(response.output_text)
+      ?? parseJsonOutput(response.output?.[0]?.content?.[0]?.text)
+      ?? null;
     return {
       response,
       output_parsed: outputParsed,
@@ -210,6 +214,23 @@ function sanitizeOpenAiMessage(message) {
     .replace(/sk-[A-Za-z0-9._-]+/g, "[redacted]")
     .replace(/Authorization:\s*[^\s]+/gi, "Authorization: [redacted]")
     .slice(0, 240);
+}
+
+function parseJsonOutput(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    if (start < 0 || end <= start) return null;
+    try {
+      return JSON.parse(raw.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
 }
 
 module.exports = { getOpenAiClient, isOpenAiMockMode, runStructuredOutput, runModeration, classifyOpenAi429, normalizeOpenAiException, sanitizeOpenAiMessage, getRetryAfterMs, retryOpenAi, collectOpenAiErrorEvidence };

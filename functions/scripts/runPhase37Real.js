@@ -4,7 +4,7 @@ const admin = require("firebase-admin");
 const { FieldValue } = require("firebase-admin/firestore");
 const { buildSeedDocuments } = require("../src/seed");
 const { processCandidateWithAi } = require("../src/phase3/analysis");
-const { loadPublicIdentity } = require("../src/identity/loadPublicIdentity");
+const { DEFAULT_MODELS } = require("../src/phase3/config");
 const { classifyOpenAi429, sanitizeOpenAiMessage, collectOpenAiErrorEvidence } = require("../src/openai/client");
 
 function loadLocalEnv() {
@@ -47,8 +47,6 @@ async function main() {
   await seedFixtures(db);
 
   const fixtures = buildPhase37Fixtures();
-  const identity = await loadPublicIdentity(db);
-  const claimLevelsByExperienceId = Object.fromEntries((identity.experiences || []).map((item) => [item.experienceId || item.id, item.claimLevel || "opinion"]));
   const results = [];
   const state = {
     completedFixtures: 0,
@@ -72,12 +70,11 @@ async function main() {
         draft,
         usageDocs: usageSnap.docs,
         started,
-        claimLevelsByExperienceId,
         outcome,
       });
       results.push(item);
       state.completedFixtures += 1;
-      state.apiCallCount += 1;
+      state.apiCallCount += item.apiCallCount || 0;
     } catch (error) {
       const diag = summarizeOpenAiFailure({ error, fixtureId: fixture.fixtureId });
       state.failedFixture = fixture.fixtureId;
@@ -108,7 +105,7 @@ async function main() {
   process.exitCode = determineRunnerExitCode({ skipped: false, realApiCompleted: state.realApiCompleted });
 }
 
-function buildResultRow({ fixture, doc, draft, usageDocs, started, claimLevelsByExperienceId, outcome }) {
+function buildResultRow({ fixture, doc, draft, usageDocs, started, outcome }) {
   const ai = doc.aiAssessment || {};
   const replies = draft?.candidates?.length
     ? draft.candidates.map((candidate) => ({
@@ -119,6 +116,8 @@ function buildResultRow({ fixture, doc, draft, usageDocs, started, claimLevelsBy
         selfCheckFlags: candidate.selfCheckFlags || [],
       }))
     : [];
+  const adapterOutput = draft?.adapterOutput || {};
+  const qualityReviewRequired = Boolean((adapterOutput.warnings || []).length || Object.values(adapterOutput.codeChecks || {}).some((value) => value === false));
   return {
     fixtureId: fixture.fixtureId,
     sourceText: fixture.sourceText,
@@ -130,7 +129,6 @@ function buildResultRow({ fixture, doc, draft, usageDocs, started, claimLevelsBy
     selectedProjects: ai.selectedProjectIds || [],
     selectedExperiences: ai.selectedExperienceIds || [],
     selectedOpinions: ai.selectedOpinionIds || [],
-    claimLevel: (ai.selectedExperienceIds || []).map((id) => claimLevelsByExperienceId[id] || "opinion"),
     selectionContext: {
       selectedProjects: selectedLookup(ai.selectedProjectIds || []),
       selectedExperiences: selectedLookup(ai.selectedExperienceIds || []),
@@ -140,9 +138,20 @@ function buildResultRow({ fixture, doc, draft, usageDocs, started, claimLevelsBy
     recommendedCandidateKey: draft?.recommendedCandidateKey || outcome?.recommendedCandidateKey || null,
     finalRecommendation: draft?.finalRecommendation || outcome?.finalRecommendation || null,
     regenerationCount: doc.aiProcessing?.regenerationCount || 0,
+    selectedContextIds: adapterOutput.selectedContextIds || [],
+    claimLevel: adapterOutput.claimLevel || [],
+    warnings: adapterOutput.warnings || [],
+    codeChecks: adapterOutput.codeChecks || null,
+    generationReason: adapterOutput.generationReason || ai.decisionSummary || null,
+    model: adapterOutput.model || DEFAULT_MODELS.reply,
+    apiCallCount: adapterOutput.apiCallCount ?? (draft ? 1 : 0),
     usage: summarizeUsage(usageDocs),
     durationMs: Date.now() - started,
     humanReviewStatus: "pending_human_review",
+    qualityReviewRequired,
+    humanFinalApprovalRequired: true,
+    judgeStatus: "not_applicable",
+    judgeApiCalls: 0,
     aiDecision: ai,
   };
 }
@@ -154,9 +163,17 @@ function selectedLookup(ids) {
 function summarizeResults(results) {
   const total = results.length || 1;
   const count = (fn) => results.filter(fn).length;
+  const contextRequiredAndSelected = count((item) => item.shouldReply && (item.selectedContextIds || []).length > 0);
+  const contextRequiredButMissing = count((item) => item.shouldReply && (item.selectedContextIds || []).length === 0);
+  const contextNotRequiredAndEmpty = count((item) => !item.shouldReply && (item.selectedContextIds || []).length === 0);
+  const irrelevantContextSelected = count((item) => !item.shouldReply && (item.selectedContextIds || []).length > 0);
   return {
     shouldReplyExpectationRate: count((item) => item.shouldReplyMatch) / total,
-    contextExpectationRate: count((item) => (item.fixtureId === "movie-offtopic" ? item.selectedProjects.length === 0 && item.selectedExperiences.length === 0 && item.selectedOpinions.length === 0 : item.selectedExperiences.length > 0)) / total,
+    contextExpectationRate: (contextRequiredAndSelected + contextNotRequiredAndEmpty) / total,
+    contextRequiredAndSelected,
+    contextRequiredButMissing,
+    contextNotRequiredAndEmpty,
+    irrelevantContextSelected,
     unrelatedProjectMixins: count((item) => item.selectedProjects.includes("meo-assistant") && item.fixtureId === "movie-offtopic"),
     claimLevelViolations: 0,
     unsupportedClaimCount: count((item) => item.replies.some((reply) => (reply.usedClaimEvidence || []).some((evidence) => !evidence.claimLevel))),
@@ -167,8 +184,11 @@ function summarizeResults(results) {
       return new Set(texts).size !== texts.length;
     }),
     unnaturalJapaneseCount: 0,
-    judgePassRate: count((item) => item.replies.every((reply) => reply.judge?.passed)) / total,
-    manualReviewRate: count((item) => item.finalRecommendation === "manual_review" || item.humanReviewStatus === "pending_human_review") / total,
+    judgeStatus: "not_applicable",
+    judgeApiCalls: 0,
+    judgePassRate: null,
+    qualityReviewRequiredRate: count((item) => item.qualityReviewRequired) / total,
+    humanFinalApprovalRequiredRate: count((item) => item.humanFinalApprovalRequired) / total,
   };
 }
 
@@ -261,11 +281,12 @@ function buildPhase37Fixtures() {
 }
 
 function summarizeUsage(docs) {
-  const usage = { replyTokens: 0, totalTokens: 0, apiCalls: 0 };
+  const usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0, apiCalls: 0 };
   for (const doc of docs) {
     const data = doc.data();
+    usage.inputTokens += data.inputTokens || 0;
+    usage.outputTokens += data.outputTokens || 0;
     usage.totalTokens += data.totalTokens || 0;
-    usage.replyTokens += data.totalTokens || 0;
     usage.apiCalls += data.requestCount || 1;
   }
   return usage;
@@ -312,7 +333,7 @@ function writeReports({ results, summary, state, payload }) {
 }
 
 function renderMarkdown({ summary, results, state }) {
-  const lines = ["# Phase 3.7 Real OpenAI Report", "", "## Summary", `- shouldReplyExpectationRate: ${summary.shouldReplyExpectationRate}`, `- contextExpectationRate: ${summary.contextExpectationRate}`, `- judgePassRate: ${summary.judgePassRate}`, `- manualReviewRate: ${summary.manualReviewRate}`, `- completedFixtures: ${state.completedFixtures}`, `- failedFixture: ${state.failedFixture || "-"}`, `- apiCallCount: ${state.apiCallCount}`, `- retryCount: ${state.retryCount}`, `- errorCategory: ${state.errorCategory || "-"}`, `- realApiCompleted: ${state.realApiCompleted}`, ""];
+  const lines = ["# Phase 3.7 Real OpenAI Report", "", "## Summary", `- shouldReplyExpectationRate: ${summary.shouldReplyExpectationRate}`, `- contextExpectationRate: ${summary.contextExpectationRate}`, `- contextRequiredAndSelected: ${summary.contextRequiredAndSelected}`, `- contextRequiredButMissing: ${summary.contextRequiredButMissing}`, `- contextNotRequiredAndEmpty: ${summary.contextNotRequiredAndEmpty}`, `- irrelevantContextSelected: ${summary.irrelevantContextSelected}`, `- judgeStatus: ${summary.judgeStatus}`, `- judgeApiCalls: ${summary.judgeApiCalls}`, `- judgePassRate: ${summary.judgePassRate}`, `- qualityReviewRequiredRate: ${summary.qualityReviewRequiredRate}`, `- humanFinalApprovalRequiredRate: ${summary.humanFinalApprovalRequiredRate}`, `- completedFixtures: ${state.completedFixtures}`, `- failedFixture: ${state.failedFixture || "-"}`, `- apiCallCount: ${state.apiCallCount}`, `- retryCount: ${state.retryCount}`, `- errorCategory: ${state.errorCategory || "-"}`, `- realApiCompleted: ${state.realApiCompleted}`, ""];
   for (const item of results) {
     lines.push(`## ${item.fixtureId}`);
     lines.push(`元投稿: ${item.sourceText}`);
@@ -322,7 +343,13 @@ function renderMarkdown({ summary, results, state }) {
     lines.push(`selectedProjects: ${(item.selectedProjects || []).join(", ") || "-"}`);
     lines.push(`selectedExperiences: ${(item.selectedExperiences || []).join(", ") || "-"}`);
     lines.push(`selectedOpinions: ${(item.selectedOpinions || []).join(", ") || "-"}`);
-    lines.push(`claimLevel: ${(item.claimLevel || []).join(", ") || "-"}`);
+    lines.push(`selectedContextIds: ${(item.selectedContextIds || []).join(", ") || "-"}`);
+    lines.push(`claimLevel: ${Array.isArray(item.claimLevel) ? item.claimLevel.join(", ") : (item.claimLevel || "-")}`);
+    lines.push(`warnings: ${(item.warnings || []).join(", ") || "-"}`);
+    lines.push(`codeChecks: ${JSON.stringify(item.codeChecks || null)}`);
+    lines.push(`generationReason: ${item.generationReason || "-"}`);
+    lines.push(`model: ${item.model || "-"}`);
+    lines.push(`apiCallCount: ${item.apiCallCount ?? "-"}`);
     lines.push(`regenerationCount: ${item.regenerationCount}`);
     lines.push(`usage: ${JSON.stringify(item.usage)}`);
     lines.push(`durationMs: ${item.durationMs}`);
