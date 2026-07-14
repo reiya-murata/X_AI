@@ -46,16 +46,26 @@ function buildFirebaseEnv(baseEnv = process.env, repoRoot = getRepoRoot()) {
   };
 }
 
+function resolveFirebaseBinary(repoRoot = getRepoRoot()) {
+  const binaryName = process.platform === "win32" ? "firebase.cmd" : "firebase";
+  const localBinary = path.join(repoRoot, "node_modules", ".bin", binaryName);
+  return fs.existsSync(localBinary) ? localBinary : null;
+}
+
 function runFirebaseCommand(args, options = {}) {
   if (!Array.isArray(args) || args.length === 0) {
     throw new Error("firebase command arguments are required.");
   }
   const repoRoot = options.cwd || getRepoRoot();
   const env = buildFirebaseEnv(options.env || process.env, repoRoot);
+  const binary = resolveFirebaseBinary(repoRoot);
+  if (!binary) {
+    throw new Error("firebase-tools is not installed locally. Run npm install to provide a repo-local Firebase CLI.");
+  }
   const finalArgs = shouldInjectProjectId(args, env)
     ? ["--project", getLocalProjectId(env), ...args]
     : args;
-  return spawnSync("firebase", finalArgs, {
+  return spawnSync(binary, finalArgs, {
     cwd: repoRoot,
     env,
     stdio: "inherit",
@@ -86,5 +96,6 @@ module.exports = {
   buildFirebaseEnv,
   getLocalFirebaseHome,
   getLocalProjectId,
+  resolveFirebaseBinary,
   runFirebaseCommand,
 };

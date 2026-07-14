@@ -27,13 +27,7 @@ const steps = [
   {
     label: "rules",
     command: "node",
-    args: [
-      "scripts/firebaseLocalExec.cjs",
-      "emulators:exec",
-      "--only",
-      "firestore",
-      "npm run test:rules",
-    ],
+    args: ["scripts/firebaseLocalExec.cjs", "emulators:exec", "--only", "firestore", "npm run test:rules"],
     env: {
       FIREBASE_PROJECT_ID: "demo-x-reply-intelligence",
       GCLOUD_PROJECT: "demo-x-reply-intelligence",
