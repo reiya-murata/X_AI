@@ -18,7 +18,11 @@ function assertEmulatorOnly() {
     storageBucket: `${projectId}.appspot.com`,
   });
   process.env.X_API_MOCK_MODE = "true";
-  process.env.OPENAI_MOCK_MODE = "true";
+  if (process.env.ALLOW_REAL_OPENAI_WITH_EMULATOR !== "true") {
+    process.env.OPENAI_MOCK_MODE = "true";
+  } else {
+    process.env.OPENAI_MOCK_MODE = process.env.OPENAI_MOCK_MODE === "false" ? "false" : "true";
+  }
   assertDemoWriteEnvironment(process.env);
 }
 

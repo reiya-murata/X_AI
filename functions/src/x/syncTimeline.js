@@ -1,10 +1,11 @@
 const { normalizeTimelineResponse } = require("./normalize");
 const { loadHardFilterRuleSet, applyHardFilter } = require("./hardFilter");
-const { fetchHomeTimeline, fetchListTimeline, logUsage } = require("./xApiClient");
+const { fetchHomeTimeline, fetchListTimeline, logUsage, getValidXAccessToken } = require("./xApiClient");
+const { writeSafeOperationLog } = require("../logging/safeOperationLog");
 const { FieldValue, Timestamp } = require("firebase-admin/firestore");
 const { assertRuntimeOperationAllowed } = require("../environmentSafety");
 
-const MANUAL_MAX_PAGES = 2;
+const COOLDOWN_MINUTES = 5;
 
 async function syncTimeline({ db, admin, firebaseUid, sourceType, listId = null, connection, accessToken }) {
   assertRuntimeOperationAllowed(process.env);
@@ -15,12 +16,17 @@ async function syncTimeline({ db, admin, firebaseUid, sourceType, listId = null,
   const lockOwner = `${runId}_${Date.now()}`;
   const now = Timestamp.now();
   const lockUntil = Timestamp.fromDate(new Date(Date.now() + 3 * 60 * 1000));
+  const cooldownUntil = Timestamp.fromDate(new Date(Date.now() + COOLDOWN_MINUTES * 60 * 1000));
 
   await db.runTransaction(async (tx) => {
     const stateSnap = await tx.get(stateRef);
     const lockDate = stateSnap.exists ? stateSnap.data().lockUntil?.toDate?.() : null;
+    const cooldownDate = stateSnap.exists ? stateSnap.data().cooldownUntil?.toDate?.() : null;
     if (lockDate && lockDate.getTime() > Date.now()) {
       throw Object.assign(new Error("SYNC_ALREADY_RUNNING"), { code: "SYNC_ALREADY_RUNNING" });
+    }
+    if (cooldownDate && cooldownDate.getTime() > Date.now()) {
+      throw Object.assign(new Error("SYNC_COOLDOWN"), { code: "SYNC_COOLDOWN" });
     }
     tx.set(stateRef, {
       firebaseUid,
@@ -29,9 +35,17 @@ async function syncTimeline({ db, admin, firebaseUid, sourceType, listId = null,
       lastStartedAt: now,
       lockUntil,
       lockOwner,
+      cooldownUntil,
       updatedAt: now,
     }, { merge: true });
   });
+
+  const stateSnap = await stateRef.get();
+  const syncPlan = buildSyncPlan(stateSnap.data()?.latestSinceId || null);
+  const sinceId = syncPlan.sinceId;
+  const previousSinceIdPresent = syncPlan.previousSinceIdPresent;
+  const requestedMaxResults = syncPlan.requestedMaxResults;
+  const syncMode = syncPlan.syncMode;
 
   await runRef.set({
     runId,
@@ -46,6 +60,12 @@ async function syncTimeline({ db, admin, firebaseUid, sourceType, listId = null,
     excludedCount: 0,
     exclusionSummary: {},
     pagesFetched: 0,
+    apiCallCount: 0,
+    requestedMaxResults,
+    syncMode,
+    sinceIdUsed: sinceId,
+    previousSinceIdPresent,
+    cooldownUntil,
     newestId: null,
     oldestId: null,
     status: "running",
@@ -55,72 +75,80 @@ async function syncTimeline({ db, admin, firebaseUid, sourceType, listId = null,
     updatedAt: now,
   });
 
+  let newestId = null;
+  let oldestId = null;
+  let fetchedCount = 0;
+  let savedCount = 0;
+  let duplicateCount = 0;
+  let excludedCount = 0;
+  let pagesFetched = 0;
+  let actualApiCalls = 0;
+  const exclusionSummary = {};
+  const savedPostIds = [];
+  const seenPostIds = new Set();
+
   try {
-    const stateSnap = await stateRef.get();
-    const sinceId = stateSnap.data()?.latestSinceId || null;
     const ruleSet = await loadHardFilterRuleSet(db);
-    let paginationToken = null;
-    let newestId = null;
-    let oldestId = null;
-    let fetchedCount = 0;
-    let savedCount = 0;
-    let duplicateCount = 0;
-    let excludedCount = 0;
-    let pagesFetched = 0;
-    const exclusionSummary = {};
-    const savedPostIds = [];
+    const { response, apiCalls } = await fetchTimelineOnce({
+      sourceType,
+      accessToken,
+      xUserId: connection.xUserId,
+      listId,
+      sinceId,
+      requestedMaxResults,
+      retry401: true,
+      onRetryRefresh: () => getValidXAccessToken({ db, admin, firebaseUid, forceRefresh: true }),
+    });
+    actualApiCalls += apiCalls;
 
-    for (let page = 0; page < MANUAL_MAX_PAGES; page += 1) {
-      const response = sourceType === "home_timeline"
-        ? await fetchHomeTimeline({ accessToken, xUserId: connection.xUserId, sinceId, paginationToken })
-        : await fetchListTimeline({ accessToken, listId, sinceId, paginationToken });
+    pagesFetched += 1;
+    fetchedCount += response.meta?.result_count || response.data?.length || 0;
+    newestId = response.meta?.newest_id || sinceId || null;
+    oldestId = response.meta?.oldest_id || oldestId;
+    await logUsage({
+      db,
+      admin,
+      firebaseUid,
+      runId,
+      endpoint: sourceType === "home_timeline" ? "home_timeline" : "list_timeline",
+      fetchedPostCount: response.data?.length || 0,
+      fetchedUserCount: response.includes?.users?.length || 0,
+      fetchedMediaCount: response.includes?.media?.length || 0,
+      success: true,
+      statusCode: 200,
+    });
 
-      pagesFetched += 1;
-      fetchedCount += response.meta?.result_count || response.data?.length || 0;
-      newestId = newestId || response.meta?.newest_id || null;
-      oldestId = response.meta?.oldest_id || oldestId;
-      await logUsage({
+    const normalizedPosts = normalizeTimelineResponse(response);
+    for (const post of normalizedPosts) {
+      if (!post.postId || seenPostIds.has(post.postId)) {
+        duplicateCount += 1;
+        continue;
+      }
+      seenPostIds.add(post.postId);
+      const existing = await db.collection("candidatePosts").doc(post.postId).get();
+      const existingStatus = existing.data()?.status;
+      const alreadyProcessed = ["posted", "skipped"].includes(existingStatus);
+      const hardFilter = applyHardFilter({ post, ownXUserId: connection.xUserId, ruleSet, alreadyProcessed });
+      const result = await saveCandidatePost({
         db,
         admin,
-        firebaseUid,
+        post,
+        sourceType,
         runId,
-        endpoint: sourceType === "home_timeline" ? "home_timeline" : "list_timeline",
-        fetchedPostCount: response.data?.length || 0,
-        fetchedUserCount: response.includes?.users?.length || 0,
-        fetchedMediaCount: response.includes?.media?.length || 0,
-        success: true,
-        statusCode: 200,
+        hardFilter,
+        existing,
       });
-
-      const normalizedPosts = normalizeTimelineResponse(response);
-      for (const post of normalizedPosts) {
-        const existing = await db.collection("candidatePosts").doc(post.postId).get();
-        const existingStatus = existing.data()?.status;
-        const alreadyProcessed = ["posted", "skipped"].includes(existingStatus);
-        const hardFilter = applyHardFilter({ post, ownXUserId: connection.xUserId, ruleSet, alreadyProcessed });
-        const result = await saveCandidatePost({
-          db,
-          admin,
-          post,
-          sourceType,
-          runId,
-          hardFilter,
-          existing,
-        });
-        if (result.duplicate) duplicateCount += 1;
-        if (hardFilter.passed) {
-          savedCount += 1;
-          savedPostIds.push(post.postId);
-        } else {
-          excludedCount += 1;
-          for (const reason of hardFilter.exclusionReasons) {
-            exclusionSummary[reason] = (exclusionSummary[reason] || 0) + 1;
-          }
+      if (result.duplicate) {
+        duplicateCount += 1;
+      } else if (hardFilter.passed) {
+        savedCount += 1;
+        savedPostIds.push(post.postId);
+      } else {
+        excludedCount += 1;
+        for (const reason of hardFilter.exclusionReasons) {
+          exclusionSummary[reason] = (exclusionSummary[reason] || 0) + 1;
         }
       }
-
-      paginationToken = response.meta?.next_token || null;
-      if (!paginationToken) break;
     }
 
     const completedAt = FieldValue.serverTimestamp();
@@ -132,8 +160,10 @@ async function syncTimeline({ db, admin, firebaseUid, sourceType, listId = null,
       excludedCount,
       exclusionSummary,
       pagesFetched,
+      apiCallCount: actualApiCalls,
       newestId,
       oldestId,
+      cooldownUntil,
       status: "completed",
       updatedAt: completedAt,
     }, { merge: true });
@@ -146,11 +176,41 @@ async function syncTimeline({ db, admin, firebaseUid, sourceType, listId = null,
       lastResultCount: fetchedCount,
       lastSavedCount: savedCount,
       lastExcludedCount: excludedCount,
+      lastDuplicateCount: duplicateCount,
+      lastApiCallCount: actualApiCalls,
+      lastRequestedMaxResults: requestedMaxResults,
+      lastSyncMode: syncMode,
+      previousSinceIdPresent,
+      sinceIdUsed: sinceId,
       lastErrorCode: null,
       lockUntil: null,
       lockOwner: null,
+      cooldownUntil,
       updatedAt: completedAt,
     }, { merge: true });
+
+    await writeSafeOperationLog({
+      db,
+      actorUid: firebaseUid,
+      actionType: "candidate_fetched",
+      safeMetadata: {
+        action: "candidate_fetched",
+        source: sourceType,
+        requestedMaxResults,
+        actualApiCalls,
+        fetchedCount,
+        savedCount,
+        duplicateCount,
+        excludedCount,
+        sinceIdUsed: Boolean(sinceId),
+        previousSinceIdPresent,
+        syncMode,
+        cooldownApplied: true,
+        result: "success",
+        correlationId: runId,
+      },
+      operationId: runId,
+    });
 
     return {
       success: true,
@@ -160,9 +220,14 @@ async function syncTimeline({ db, admin, firebaseUid, sourceType, listId = null,
       duplicateCount,
       excludedCount,
       newestId,
-      hasMore: Boolean(paginationToken),
+      hasMore: false,
       exclusionSummary,
       savedPostIds,
+      apiCallCount: actualApiCalls,
+      requestedMaxResults,
+      syncMode,
+      sinceIdUsed: sinceId,
+      previousSinceIdPresent,
     };
   } catch (error) {
     const code = error.code || "UNKNOWN_ERROR";
@@ -173,17 +238,74 @@ async function syncTimeline({ db, admin, firebaseUid, sourceType, listId = null,
       status: "failed",
       errorCode: code,
       errorMessageSafe: code,
+      cooldownUntil,
       updatedAt: failedAt,
     }, { merge: true });
     await stateRef.set({
       lastErrorCode: code,
       lastErrorAt: failedAt,
+      lastDuplicateCount: duplicateCount,
       lockUntil: null,
       lockOwner: null,
+      cooldownUntil,
       updatedAt: failedAt,
     }, { merge: true });
+    await writeSafeOperationLog({
+      db,
+      actorUid: firebaseUid,
+      actionType: "candidate_fetched",
+      safeMetadata: {
+        action: "candidate_fetched",
+        source: sourceType,
+        requestedMaxResults,
+        actualApiCalls: Number.isFinite(actualApiCalls) ? actualApiCalls : 0,
+        fetchedCount,
+        savedCount,
+        duplicateCount,
+        excludedCount,
+        sinceIdUsed: Boolean(sinceId),
+        previousSinceIdPresent,
+        syncMode,
+        cooldownApplied: true,
+        result: "failed",
+        errorCode: code,
+        correlationId: runId,
+      },
+      operationId: runId,
+    }).catch(() => {});
     throw error;
   }
+}
+
+async function fetchTimelineOnce({ sourceType, accessToken, xUserId, listId, sinceId, requestedMaxResults, retry401, onRetryRefresh }) {
+  const fetcher = sourceType === "home_timeline"
+    ? () => fetchHomeTimeline({ accessToken, xUserId, sinceId, maxResults: requestedMaxResults })
+    : () => fetchListTimeline({ accessToken, listId, sinceId, maxResults: requestedMaxResults });
+  try {
+    const response = await fetcher();
+    return { response, apiCalls: 1 };
+  } catch (error) {
+    const status = error?.status || error?.response?.status;
+    if (retry401 && status === 401) {
+      const refreshedAccessToken = await onRetryRefresh();
+      const retryResponse = sourceType === "home_timeline"
+        ? await fetchHomeTimeline({ accessToken: refreshedAccessToken, xUserId, sinceId, maxResults: requestedMaxResults })
+        : await fetchListTimeline({ accessToken: refreshedAccessToken, listId, sinceId, maxResults: requestedMaxResults });
+      return { response: retryResponse, apiCalls: 2 };
+    }
+    throw error;
+  }
+}
+
+function buildSyncPlan(latestSinceId) {
+  const sinceId = latestSinceId ? String(latestSinceId) : null;
+  const previousSinceIdPresent = Boolean(sinceId);
+  return {
+    sinceId,
+    previousSinceIdPresent,
+    requestedMaxResults: previousSinceIdPresent ? 20 : 50,
+    syncMode: previousSinceIdPresent ? "incremental" : "initial",
+  };
 }
 
 async function saveCandidatePost({ db, post, sourceType, runId, hardFilter, existing }) {
@@ -216,4 +338,4 @@ async function saveCandidatePost({ db, post, sourceType, runId, hardFilter, exis
   return { duplicate: existing.exists };
 }
 
-module.exports = { syncTimeline };
+module.exports = { syncTimeline, buildSyncPlan, fetchTimelineOnce };

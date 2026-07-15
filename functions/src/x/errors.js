@@ -15,6 +15,7 @@ const errorMessages = {
   X_LIST_NOT_CONFIGURED: "監視リストIDが設定されていません。",
   X_LIST_FETCH_FAILED: "監視リスト取得に失敗しました。",
   SYNC_ALREADY_RUNNING: "現在タイムライン取得処理が実行中です。",
+  SYNC_COOLDOWN: "直前に取得済みです。しばらく待ってから再実行してください。",
   SYNC_SAVE_FAILED: "取得結果の保存に失敗しました。",
   INVALID_RESPONSE: "X APIのレスポンス形式を確認してください。",
   UNKNOWN_ERROR: "不明なエラーが発生しました。",

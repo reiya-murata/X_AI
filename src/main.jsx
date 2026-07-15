@@ -68,6 +68,31 @@ const baseTabs = [
   { id: "readiness", label: "本番準備", icon: ShieldCheck },
 ];
 
+function getGenerationButtonLabel() {
+  return runtimeInfo.openAi === "Real" ? "実AIで生成" : "モック生成";
+}
+
+function formatRelativeCooldown(cooldownUntil) {
+  if (!cooldownUntil) return "いつでも";
+  const target = new Date(cooldownUntil).getTime();
+  if (!Number.isFinite(target)) return "未確認";
+  const diff = target - Date.now();
+  if (diff <= 0) return "取得可能";
+  const minutes = Math.ceil(diff / 60000);
+  return `${minutes}分後`;
+}
+
+function sumRecentUsage(runs = []) {
+  const since = Date.now() - 24 * 60 * 60 * 1000;
+  return runs.reduce((acc, run) => {
+    const startedAt = new Date(run.startedAt || run.createdAt || 0).getTime();
+    if (!Number.isFinite(startedAt) || startedAt < since) return acc;
+    acc.apiCalls += Number(run.apiCallCount || run.pagesFetched || 0);
+    acc.fetched += Number(run.fetchedCount || 0);
+    return acc;
+  }, { apiCalls: 0, fetched: 0 });
+}
+
 function shouldShowQualityLab() {
   const hostname = window.location.hostname;
   const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
@@ -333,10 +358,27 @@ function App() {
   async function handleFetchHome() {
     setLoading(true);
     try {
+      console.log("ui:fetchHomeTimelineNow:start", {
+        firebaseEnabled,
+        xApiMock: runtimeInfo.xApi,
+        connectionStatus: connection?.connected ? "connected" : "disconnected",
+        username: connection?.username || null,
+      });
       const result = await fetchHomeTimelineNow();
-      notify(`ホーム取得: 保存${result.savedCount}件 / 除外${result.excludedCount}件`);
+      console.log("ui:fetchHomeTimelineNow:success", {
+        apiCallCount: result?.apiCallCount ?? null,
+        savedCount: result?.savedCount ?? null,
+        excludedCount: result?.excludedCount ?? null,
+        fetchedCount: result?.fetchedCount ?? null,
+        duplicateCount: result?.duplicateCount ?? null,
+        hasMore: result?.hasMore ?? null,
+        syncMode: result?.syncMode ?? null,
+        requestedMaxResults: result?.requestedMaxResults ?? null,
+      });
+      notify(`ホーム取得: API${result.apiCallCount || 1}回 / 保存${result.savedCount}件 / 除外${result.excludedCount}件`);
       await refreshAll();
     } catch (error) {
+      console.error("ui:fetchHomeTimelineNow:failed", { message: error?.message || String(error) });
       notify(formatOperationalError(error, "ホームタイムライン取得に失敗しました。X接続を確認してください。"));
     } finally {
       setLoading(false);
@@ -348,7 +390,7 @@ function App() {
     try {
       await saveWatchListSetting({ listId, name: listName, enabled: true });
       const result = await fetchWatchListTimelineNow(listId);
-      notify(`リスト取得: 保存${result.savedCount}件 / 除外${result.excludedCount}件`);
+      notify(`リスト取得: API${result.apiCallCount || 1}回 / 保存${result.savedCount}件 / 除外${result.excludedCount}件`);
       await refreshAll();
     } catch (error) {
       notify(formatOperationalError(error, "監視リスト取得に失敗しました。X接続とリストIDを確認してください。"));
@@ -716,7 +758,42 @@ function UserBar({ user, admin, onLogout }) {
 
 function ConnectionPanel(props) {
   const { connection, syncOverview, listId, setListId, listName, setListName, loading, onConnect, onDisconnect, onFetchHome, onFetchList, onRefresh } = props;
-  const state = syncOverview?.states?.[0];
+  const homeState = syncOverview?.states?.find((item) => item.sourceType === "home_timeline") || syncOverview?.states?.[0];
+  const listState = syncOverview?.states?.find((item) => item.sourceType === "watch_list" && String(item.listId || "") === String(listId || ""));
+  const recentUsage = sumRecentUsage(syncOverview?.runs || []);
+  const requiredScopes = ["tweet.read", "users.read", "offline.access"];
+  const listScopes = ["tweet.read", "users.read", "list.read", "offline.access"];
+  const hasRequiredScopes = !connection?.connected || requiredScopes.every((scope) => (connection?.scopes || []).includes(scope));
+  const hasListScopes = !connection?.connected || listScopes.every((scope) => (connection?.scopes || []).includes(scope));
+  const cooldownUntil = homeState?.cooldownUntil || null;
+  const listCooldownUntil = listState?.cooldownUntil || null;
+  const cooldownActive = Boolean(cooldownUntil && new Date(cooldownUntil).getTime() > Date.now());
+  const listCooldownActive = Boolean(listCooldownUntil && new Date(listCooldownUntil).getTime() > Date.now());
+  const syncLabel = homeState?.lastSyncMode === "incremental" ? "通常差分同期" : "初回同期";
+  const homeButtonLabel = !connection?.connected
+    ? "Xと接続してください"
+    : !hasRequiredScopes
+      ? "必要なscopeがありません"
+      : runtimeInfo.xApi === "Mock"
+        ? "モック取得"
+        : loading
+          ? "取得中"
+            : cooldownActive
+            ? `次回取得まで${formatRelativeCooldown(cooldownUntil)}`
+            : homeState?.latestSinceId ? "新着20件まで取得" : "初回50件まで取得";
+  const homeButtonDisabled = loading || !connection?.connected || !hasRequiredScopes || (cooldownActive && runtimeInfo.xApi !== "Mock");
+  const listButtonLabel = !connection?.connected
+    ? "Xと接続してください"
+    : !hasListScopes
+      ? "必要なscopeがありません"
+      : runtimeInfo.xApi === "Mock"
+        ? "モック取得"
+        : loading
+          ? "取得中"
+          : listCooldownActive
+            ? `次回取得まで${formatRelativeCooldown(listCooldownUntil)}`
+            : listState?.latestSinceId ? "新着20件まで取得" : "初回50件まで取得";
+  const listButtonDisabled = loading || !listId || !connection?.connected || !hasListScopes || (listCooldownActive && runtimeInfo.xApi !== "Mock");
   return (
     <section className="control-grid">
       <article className="work-panel">
@@ -751,13 +828,17 @@ function ConnectionPanel(props) {
           <span className="judge-warn">定期取得 停止中</span>
         </div>
         <div className="sync-lines">
-          <p>最終取得: {formatDate(state?.lastSuccessfulAt)}</p>
-          <p>前回取得 {state?.lastResultCount ?? 0}件 / 保存 {state?.lastSavedCount ?? 0}件 / 除外 {state?.lastExcludedCount ?? 0}件</p>
-          <p>since_id: {state?.latestSinceId || "未保存"}</p>
+          <p>最終取得: {formatDate(homeState?.lastSuccessfulAt)}</p>
+          <p>前回取得 {homeState?.lastResultCount ?? 0}件 / 保存 {homeState?.lastSavedCount ?? 0}件 / 除外 {homeState?.lastExcludedCount ?? 0}件</p>
+          <p>今回API {homeState?.lastApiCallCount ?? 0}回 / 今回取得 {homeState?.lastResultCount ?? 0}件 / 新規保存 {homeState?.lastSavedCount ?? 0}件</p>
+          <p>重複 {homeState?.lastDuplicateCount ?? 0}件 / 除外 {homeState?.lastExcludedCount ?? 0}件 / since_id {homeState?.sinceIdUsed ? "あり" : "なし"}</p>
+          <p>取得モード: {syncLabel} / 次回取得: {cooldownUntil ? `${formatDate(cooldownUntil)} (${formatRelativeCooldown(cooldownUntil)})` : "いつでも"}</p>
+          <p>直近24時間: API {recentUsage.apiCalls}回 / 取得 {recentUsage.fetched}件</p>
+          <p>since_id: {homeState?.latestSinceId || "未保存"}</p>
         </div>
-        <button type="button" className="primary-action wide" onClick={onFetchHome} disabled={loading}>
+        <button type="button" className="primary-action wide" onClick={onFetchHome} disabled={homeButtonDisabled}>
           <RefreshCw size={17} />
-          {loading ? "取得中" : "ホームタイムラインを取得"}
+          {homeButtonLabel}
         </button>
       </article>
 
@@ -768,9 +849,14 @@ function ConnectionPanel(props) {
         </div>
         <input value={listName} onChange={(event) => setListName(event.target.value)} aria-label="監視リスト名" />
         <input value={listId} onChange={(event) => setListId(event.target.value.replace(/\D/g, ""))} aria-label="監視リストID" />
-        <button type="button" className="primary-action wide" onClick={onFetchList} disabled={loading || !listId}>
+        <div className="sync-lines">
+          <p>リスト最終取得: {formatDate(listState?.lastSuccessfulAt)}</p>
+          <p>リストAPI {listState?.lastApiCallCount ?? 0}回 / 新着{listState?.lastRequestedMaxResults ?? 20}件まで / since_id {listState?.sinceIdUsed ? "あり" : "なし"}</p>
+          <p>リスト次回取得: {listCooldownUntil ? `${formatDate(listCooldownUntil)} (${formatRelativeCooldown(listCooldownUntil)})` : "いつでも"}</p>
+        </div>
+        <button type="button" className="primary-action wide" onClick={onFetchList} disabled={listButtonDisabled}>
           <ListFilter size={17} />
-          監視リストを取得
+          {listButtonLabel}
         </button>
       </article>
     </section>
@@ -950,7 +1036,7 @@ function CandidateCard({ candidate, notify, setTestPost, setActiveTab, onAiActio
         </button>
         <button type="button" className="quiet-action" onClick={() => onAiAction(candidate, "process")} disabled={busy}>
           <Sparkles size={17} />
-          AIで候補生成
+          {getGenerationButtonLabel()}
         </button>
         <button type="button" className="quiet-action" onClick={() => onAiAction(candidate, "manual")} disabled={busy}>
           <X size={17} />
@@ -1007,7 +1093,7 @@ function CandidateDetail({ candidate, aiState, notify, onClose, onAiAction, busy
     )}
     {hasWarnings && <div className="workflow-warning"><AlertTriangle size={18} /><div><strong>要確認</strong><p>{(candidate.aiDecision?.warnings || candidate.aiAssessment?.riskFlags || aiState?.adapterOutput?.warnings || []).join(" / ")}</p></div></div>}
     {(storedCandidateStatus === "generation_failed" || candidate.generationError || candidate.generationErrorCode) && (candidate.generationError || candidate.generationErrorCode) && <details className="technical-info"><summary>技術情報</summary><p>以前の生成失敗: {candidate.generationError || candidate.generationErrorCode}</p></details>}
-    {shouldReply ? <div className="action-row"><button className="quiet-action" onClick={save} disabled={saving || !draftId}>{saving ? "保存中" : "編集を保存"}</button><button className="quiet-action" onClick={() => setText(originalText)} disabled={saving}>元に戻す</button><button className="primary-action" onClick={openIntent} disabled={saving || !text.trim()}><ExternalLink size={17} />Web IntentでXを開く</button><button className="quiet-action" onClick={() => onAiAction(candidate, "process")} disabled={busy}>モック生成</button><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "dismissed" }), "不採用にしました")}>不採用</button></div> : <div className="action-row"><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "archived" }), "保管しました")}>保管</button><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "dismissed" }), "不採用にしました")}>不採用</button></div>}
+    {shouldReply ? <div className="action-row"><button className="quiet-action" onClick={save} disabled={saving || !draftId}>{saving ? "保存中" : "編集を保存"}</button><button className="quiet-action" onClick={() => setText(originalText)} disabled={saving}>元に戻す</button><button className="primary-action" onClick={openIntent} disabled={saving || !text.trim()}><ExternalLink size={17} />Web IntentでXを開く</button><button className="quiet-action" onClick={() => onAiAction(candidate, "process")} disabled={busy}>{getGenerationButtonLabel()}</button><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "dismissed" }), "不採用にしました")}>不採用</button></div> : <div className="action-row"><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "archived" }), "保管しました")}>保管</button><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "dismissed" }), "不採用にしました")}>不採用</button></div>}
     <div className="detail-navigation"><button className="quiet-action" disabled={!canPrevious} onClick={() => onMove(-1)}><ChevronLeft size={17} />前の候補</button><button className="quiet-action" disabled={!canNext} onClick={() => onMove(1)}>次の候補<ChevronRight size={17} /></button></div>
     {showSendCheck && <div className="send-confirm"><h4>Xで返信を送信しましたか？</h4><div className="form-grid"><label>利用結果<select value={feedback} onChange={(event) => setFeedback(event.target.value)}>{Object.entries(feedbackLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>返信URL（任意）<input value={replyUrl} onChange={(event) => setReplyUrl(event.target.value)} placeholder="https://x.com/..." /></label><label>未送信の理由<select value={notSentReason} onChange={(event) => setNotSentReason(event.target.value)}>{Object.entries(notSentReasonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div><div className="action-row"><button className="primary-action" onClick={() => recordSend(true)} disabled={saving}>送信した</button><button className="quiet-action" onClick={() => recordSend(false)} disabled={saving}>送信しなかった</button><button className="quiet-action" onClick={() => setShowSendCheck(false)}>あとで確認</button></div></div>}
     {candidateStatus === "sent_manual" && <OutcomeForm value={outcome} setValue={setOutcome} onSave={() => run(() => saveReplyOutcomeMetrics({ candidatePostId: candidate.postId, metrics: outcome }), "反応を記録しました")} saving={saving} />}

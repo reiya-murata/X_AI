@@ -7,7 +7,7 @@ const ALLOWED_ACTIONS = new Set([
   "not_sent_recorded", "outcome_recorded", "usage_feedback_saved", "status_changed", "preflight_run", "environment_rejected",
   "backup_created", "restore_tested", "migration_dry_run",
 ]);
-const ALLOWED_METADATA = new Set(["feedback", "notSentReason", "replyDraftId", "likes", "replies", "reposts", "from", "to", "duplicate", "errorCategory", "retryable", "documentCount", "collectionCount", "migrationId"]);
+const ALLOWED_METADATA = new Set(["feedback", "notSentReason", "replyDraftId", "likes", "replies", "reposts", "from", "to", "duplicate", "errorCategory", "retryable", "documentCount", "collectionCount", "migrationId", "action", "source", "requestedMaxResults", "actualApiCalls", "fetchedCount", "savedCount", "duplicateCount", "excludedCount", "sinceIdUsed", "previousSinceIdPresent", "syncMode", "cooldownApplied", "result", "correlationId"]);
 const SECRET_KEY = /(authorization|api.?key|access.?token|refresh.?token|oauth|cookie|password|secret|private.?key|prompt|body|text|email)/i;
 const SECRET_VALUE = /(bearer\s+[a-z0-9._-]+|sk-[a-z0-9_-]{12,}|-----BEGIN [A-Z ]+PRIVATE KEY-----)/i;
 

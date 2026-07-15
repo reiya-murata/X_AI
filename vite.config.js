@@ -35,8 +35,23 @@ function getReleaseInfo() {
 
 const buildInfo = getReleaseInfo();
 
+function shouldProxyOAuthCallback() {
+  return process.env.VITE_USE_FIREBASE_EMULATORS === "true" || process.env.VITE_USE_FIREBASE === "true";
+}
+
 export default defineConfig({
   plugins: [react()],
+  server: shouldProxyOAuthCallback()
+    ? {
+        proxy: {
+          "/__/functions/xOAuthCallback": {
+            target: "http://127.0.0.1:5003/demo-x-reply-intelligence/asia-northeast1",
+            changeOrigin: true,
+            rewrite: (pathname) => pathname.replace("/__/functions/xOAuthCallback", "/xOAuthCallback"),
+          },
+        },
+      }
+    : undefined,
   define: {
     "import.meta.env.VITE_RELEASE_CANDIDATE_VERSION": JSON.stringify(buildInfo.releaseCandidateVersion),
     "import.meta.env.VITE_RELEASE_GIT_COMMIT": JSON.stringify(buildInfo.gitCommitHash),

@@ -114,7 +114,7 @@ exports.beginXOAuth = onCall({ region: "asia-northeast1" }, async (request) => {
 
   const params = new URLSearchParams({
     response_type: "code",
-    client_id: process.env.X_CLIENT_ID || "",
+    client_id: process.env.X_CLIENT_ID || process.env.X_OAUTH_CLIENT_ID || "",
     redirect_uri: redirectUri,
     scope: REQUIRED_SCOPES.join(" "),
     state,
@@ -126,9 +126,15 @@ exports.beginXOAuth = onCall({ region: "asia-northeast1" }, async (request) => {
 });
 
 exports.xOAuthCallback = onRequest({ region: "asia-northeast1" }, async (req, res) => {
+  console.log("xOAuthCallback:start", {
+    hasCode: Boolean(req.query.code),
+    hasState: Boolean(req.query.state),
+    host: req.headers.host || null,
+  });
   const code = String(req.query.code || "");
   const state = String(req.query.state || "");
   if (!code || !state) {
+    console.log("xOAuthCallback:missing_params");
     res.redirect(`${appBaseUrl()}/?x_oauth_error=X_OAUTH_CODE_MISSING`);
     return;
   }
@@ -137,11 +143,13 @@ exports.xOAuthCallback = onRequest({ region: "asia-northeast1" }, async (req, re
   const stateRef = db.collection("xOAuthStates").doc(stateHash);
   const stateSnap = await stateRef.get();
   if (!stateSnap.exists || stateSnap.data().usedAt) {
+    console.log("xOAuthCallback:state_invalid");
     res.redirect(`${appBaseUrl()}/?x_oauth_error=X_OAUTH_STATE_INVALID`);
     return;
   }
   const stateData = stateSnap.data();
   if (stateData.expiresAt.toDate().getTime() < Date.now()) {
+    console.log("xOAuthCallback:state_expired");
     res.redirect(`${appBaseUrl()}/?x_oauth_error=X_OAUTH_STATE_EXPIRED`);
     return;
   }
@@ -170,18 +178,28 @@ exports.xOAuthCallback = onRequest({ region: "asia-northeast1" }, async (req, re
       lastErrorAt: null,
     }, { merge: true });
     await stateRef.set({ usedAt: FieldValue.serverTimestamp() }, { merge: true });
+    console.log("xOAuthCallback:success", { firebaseUid: stateData.firebaseUid, xUserId: me.data.id, username: me.data.username });
     res.redirect(`${appBaseUrl()}/?x_oauth=success`);
   } catch (error) {
     await stateRef.set({ usedAt: FieldValue.serverTimestamp() }, { merge: true });
+    console.log("xOAuthCallback:failed", { code: error.code || "X_TOKEN_EXCHANGE_FAILED" });
     res.redirect(`${appBaseUrl()}/?x_oauth_error=${encodeURIComponent(error.code || "X_TOKEN_EXCHANGE_FAILED")}`);
   }
 });
 
 exports.getXConnectionStatus = onCall({ region: "asia-northeast1" }, async (request) => {
   const adminUser = requireAdmin(request);
+  console.log("getXConnectionStatus:start", { uid: adminUser.uid, xApiMockMode: isMockMode() });
   if (isMockMode()) return mockConnection;
 
   const snap = await db.collection("xConnections").doc(adminUser.uid).get();
+  console.log("getXConnectionStatus:firestore", {
+    uid: adminUser.uid,
+    exists: snap.exists,
+    status: snap.exists ? snap.data()?.status || null : null,
+    username: snap.exists ? snap.data()?.username || null : null,
+    hasEncryptedAccessToken: snap.exists ? Boolean(snap.data()?.encryptedAccessToken) : false,
+  });
   if (!snap.exists || snap.data().status !== "connected") {
     return emptyConnectionStatus(snap.data()?.lastErrorCode || null);
   }
@@ -281,10 +299,29 @@ exports.getSyncOverview = onCall({ region: "asia-northeast1" }, async (request) 
 
 exports.fetchHomeTimelineNow = onCall({ region: "asia-northeast1" }, async (request) => {
   const adminUser = requireAdmin(request);
+  console.log("fetchHomeTimelineNow:start", { uid: adminUser.uid, xApiMockMode: isMockMode() });
   const connection = await getConnectionForSync(adminUser.uid);
+  console.log("fetchHomeTimelineNow:connection", {
+    uid: adminUser.uid,
+    status: connection.status || null,
+    username: connection.username || null,
+    hasEncryptedAccessToken: Boolean(connection.encryptedAccessToken),
+    hasEncryptedRefreshToken: Boolean(connection.encryptedRefreshToken),
+    accessTokenExpiresAt: connection.accessTokenExpiresAt?.toDate?.()?.toISOString?.() || null,
+  });
   const accessToken = await getValidXAccessToken({ db, admin, firebaseUid: adminUser.uid });
+  console.log("fetchHomeTimelineNow:tokenReady", { uid: adminUser.uid, tokenSource: isMockMode() ? "mock" : "emulator_or_refresh" });
   try {
-    return await syncTimeline({ db, admin, firebaseUid: adminUser.uid, sourceType: "home_timeline", connection, accessToken });
+    const result = await syncTimeline({ db, admin, firebaseUid: adminUser.uid, sourceType: "home_timeline", connection, accessToken });
+    console.log("fetchHomeTimelineNow:complete", {
+      uid: adminUser.uid,
+      fetchedCount: result.fetchedCount,
+      savedCount: result.savedCount,
+      excludedCount: result.excludedCount,
+      duplicateCount: result.duplicateCount,
+      hasMore: result.hasMore,
+    });
+    return result;
   } catch (error) {
     console.error("fetchHomeTimelineNow failed", { code: error.code, message: error.message });
     throw new HttpsError("failed-precondition", safeMessage(error.code), { code: error.code || "UNKNOWN_ERROR" });

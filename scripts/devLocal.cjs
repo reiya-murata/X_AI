@@ -7,6 +7,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const demoProjectId = "demo-x-reply-intelligence";
 const emulatorDataDir = path.join(repoRoot, ".firebase-emulator-data", "manual");
 const ports = [9097, 8081, 5003];
+const rootEnvPath = path.join(repoRoot, ".env");
 const emulatorImportMetadataCandidates = [
   path.join(emulatorDataDir, "firebase-export-metadata.json"),
   path.join(emulatorDataDir, "firestore_export", "firebase-export-metadata.json"),
@@ -41,6 +42,84 @@ function spawnCmd(command, args, env, options = {}) {
   child.stdout.on("data", (chunk) => process.stdout.write(chunk));
   child.stderr.on("data", (chunk) => process.stderr.write(chunk));
   return child;
+}
+
+function parseEnvContent(content) {
+  const parsed = {};
+  const lines = content.split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eqIndex = line.indexOf("=");
+    if (eqIndex < 0) continue;
+    const key = line.slice(0, eqIndex).trim();
+    if (!key) continue;
+    let value = line.slice(eqIndex + 1);
+    const commentIndex = value.match(/(^|\s)#/);
+    if (commentIndex) {
+      value = value.slice(0, commentIndex.index).trimEnd();
+    }
+    value = value.trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    parsed[key] = value;
+  }
+  return parsed;
+}
+
+function loadRootEnv() {
+  if (!fs.existsSync(rootEnvPath)) return {};
+  const content = fs.readFileSync(rootEnvPath, "utf8");
+  return parseEnvContent(content);
+}
+
+function buildEmulatorEnv(rootEnv = loadRootEnv()) {
+  const envValue = (keys, fallback = "") => {
+    const keyList = Array.isArray(keys) ? keys : [keys];
+    const value = keyList
+      .map((key) => process.env[key] ?? rootEnv[key])
+      .find((candidate) => typeof candidate === "string" && candidate.length > 0);
+    return typeof value === "string" && value.length > 0 ? value : fallback;
+  };
+  const envFlag = (key, fallback) => {
+    const value = process.env[key] ?? rootEnv[key];
+    if (value === "true" || value === "false") return value;
+    return fallback;
+  };
+
+  return {
+    FIREBASE_PROJECT_ID: demoProjectId,
+    GCLOUD_PROJECT: demoProjectId,
+    GOOGLE_CLOUD_PROJECT: demoProjectId,
+    FIREBASE_CONFIG: getFirebaseConfig(demoProjectId),
+    FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097",
+    FIRESTORE_EMULATOR_HOST: "127.0.0.1:8081",
+    X_API_MOCK_MODE: envFlag("X_API_MOCK_MODE", "true"),
+    OPENAI_MOCK_MODE: envFlag("OPENAI_MOCK_MODE", "true"),
+    VITE_OPENAI_MOCK_MODE: envFlag("VITE_OPENAI_MOCK_MODE", envFlag("OPENAI_MOCK_MODE", "true")),
+    ALLOW_REAL_OPENAI_WITH_EMULATOR: envFlag("ALLOW_REAL_OPENAI_WITH_EMULATOR", "false"),
+    VITE_ALLOW_REAL_OPENAI_WITH_EMULATOR: envFlag("VITE_ALLOW_REAL_OPENAI_WITH_EMULATOR", envFlag("ALLOW_REAL_OPENAI_WITH_EMULATOR", "false")),
+    ENABLE_REAL_OPENAI_TESTS: envFlag("ENABLE_REAL_OPENAI_TESTS", "false"),
+    VITE_ENABLE_REAL_OPENAI_TESTS: envFlag("VITE_ENABLE_REAL_OPENAI_TESTS", envFlag("ENABLE_REAL_OPENAI_TESTS", "false")),
+    VITE_USE_FIREBASE: "true",
+    VITE_USE_FIREBASE_EMULATORS: "true",
+    VITE_USE_MOCK_DATA: "false",
+    VITE_USE_X_API_MOCK: envFlag("VITE_USE_X_API_MOCK", "true"),
+    VITE_FIREBASE_PROJECT_ID: demoProjectId,
+    VITE_FIREBASE_AUTH_EMULATOR_URL: "http://127.0.0.1:9097",
+    VITE_FIRESTORE_EMULATOR_HOST: "127.0.0.1",
+    VITE_FIRESTORE_EMULATOR_PORT: "8081",
+    VITE_FUNCTIONS_EMULATOR_HOST: "127.0.0.1",
+    VITE_FUNCTIONS_EMULATOR_PORT: "5003",
+    APP_BASE_URL: envValue("APP_BASE_URL", "http://localhost:5174"),
+    X_CLIENT_ID: envValue(["X_CLIENT_ID", "X_OAUTH_CLIENT_ID"]),
+    X_CLIENT_SECRET: envValue(["X_CLIENT_SECRET", "X_OAUTH_CLIENT_SECRET"]),
+    X_OAUTH_REDIRECT_URI: envValue("X_OAUTH_REDIRECT_URI", "http://localhost:5174/__/functions/xOAuthCallback"),
+  };
 }
 
 function getFirebaseConfig(projectId) {
@@ -86,28 +165,7 @@ async function main() {
   assertNodeVersion();
   await assertPortFree(5174);
   fs.mkdirSync(emulatorDataDir, { recursive: true });
-
-  const emulatorEnv = {
-    FIREBASE_PROJECT_ID: demoProjectId,
-    GCLOUD_PROJECT: demoProjectId,
-    GOOGLE_CLOUD_PROJECT: demoProjectId,
-    FIREBASE_CONFIG: getFirebaseConfig(demoProjectId),
-    FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097",
-    FIRESTORE_EMULATOR_HOST: "127.0.0.1:8081",
-    X_API_MOCK_MODE: "true",
-    OPENAI_MOCK_MODE: "true",
-    VITE_USE_FIREBASE: "true",
-    VITE_USE_FIREBASE_EMULATORS: "true",
-    VITE_USE_MOCK_DATA: "false",
-    VITE_USE_X_API_MOCK: "true",
-    VITE_FIREBASE_PROJECT_ID: demoProjectId,
-    VITE_FIREBASE_AUTH_EMULATOR_URL: "http://127.0.0.1:9097",
-    VITE_FIRESTORE_EMULATOR_HOST: "127.0.0.1",
-    VITE_FIRESTORE_EMULATOR_PORT: "8081",
-    VITE_FUNCTIONS_EMULATOR_HOST: "127.0.0.1",
-    VITE_FUNCTIONS_EMULATOR_PORT: "5003",
-    APP_BASE_URL: "http://localhost:5174",
-  };
+  const emulatorEnv = buildEmulatorEnv();
 
   const children = [];
   const shutdown = () => {
@@ -155,7 +213,12 @@ async function main() {
       VITE_DEFAULT_TAB: "dashboard",
       VITE_ENABLE_QUALITY_LAB: "false",
     };
-    const vite = spawnCmd("npm", ["run", "dev:local-ui"], uiEnv, { stdio: ["ignore", "pipe", "pipe"] });
+    const vite = spawnCmd(
+      path.join(repoRoot, "node_modules", ".bin", "vite"),
+      ["--host", "0.0.0.0", "--port", "5174", "--strictPort"],
+      uiEnv,
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
     children.push(vite);
 
     vite.once("exit", (code) => {
@@ -186,7 +249,15 @@ function onceExit(child, label) {
   });
 }
 
-main().catch((error) => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  buildEmulatorEnv,
+  loadRootEnv,
+  parseEnvContent,
+};

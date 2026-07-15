@@ -7,12 +7,16 @@ function evaluateServerEnvironment(env = process.env, mode = "local") {
   const authEmulator = Boolean(env.FIREBASE_AUTH_EMULATOR_HOST);
   const openAiMock = env.OPENAI_MOCK_MODE !== "false";
   const xApiMock = env.X_API_MOCK_MODE !== "false";
+  const allowRealOpenAiWithEmulator = env.ALLOW_REAL_OPENAI_WITH_EMULATOR === "true";
   const checks = [];
   const add = (id, status, message, action) => checks.push({ id, status, message, action });
 
   if (production && openAiMock) add("production_mock", "failed", "本番環境でOpenAIモックが有効です。", "OPENAI_MOCK_MODE=falseへ変更してください。");
   if (production && (firestoreEmulator || authEmulator)) add("production_emulator", "failed", "本番環境でFirebase Emulatorが設定されています。", "Emulator host環境変数を削除してください。");
-  if (demoProject && !openAiMock && env.ENABLE_REAL_OPENAI_TESTS !== "true") add("demo_real_openai", "failed", "demo projectで実OpenAIが有効です。", "OPENAI_MOCK_MODE=trueへ戻してください。");
+  if (production && allowRealOpenAiWithEmulator) add("production_real_openai_allow", "failed", "本番環境で実OpenAI許可フラグが有効です。", "ALLOW_REAL_OPENAI_WITH_EMULATORを削除してください。");
+  if (demoProject && !openAiMock && !allowRealOpenAiWithEmulator) add("demo_real_openai", "failed", "demo projectで実OpenAIが有効です。", "dev:local:real専用のALLOW_REAL_OPENAI_WITH_EMULATOR=trueを設定してください。");
+  if (demoProject && !openAiMock && allowRealOpenAiWithEmulator && env.ENABLE_REAL_OPENAI_TESTS !== "true") add("demo_real_openai_tests", "failed", "demo projectで実OpenAIの明示検証フラグが不足しています。", "ENABLE_REAL_OPENAI_TESTS=trueを設定してください。");
+  if (demoProject && !openAiMock && allowRealOpenAiWithEmulator && (!firestoreEmulator || !authEmulator)) add("demo_real_openai_emulator", "failed", "demo projectの実OpenAI検証に必要なEmulator接続が不足しています。", "AuthとFirestore Emulatorを起動してください。");
   if (demoProject && (!firestoreEmulator || !authEmulator)) add("demo_missing_emulator", "failed", "demo projectでEmulator接続が不足しています。", "AuthとFirestore Emulatorを起動してください。");
   if (!demoProject && (firestoreEmulator || authEmulator)) add("production_project_emulator", "failed", "本番候補projectとEmulator設定が混在しています。", "projectと接続先を揃えてください。");
   if (mode === "local" && !demoProject) add("local_non_demo", "failed", "local preflightはdemo project限定です。", "demo-で始まるproject IDを指定してください。");
@@ -20,7 +24,7 @@ function evaluateServerEnvironment(env = process.env, mode = "local") {
 
   return {
     ok: !checks.some((check) => check.status === "failed"), mode, appEnv, projectId,
-    flags: { production, demoProject, firestoreEmulator, authEmulator, openAiMock, xApiMock, realOpenAiTests: env.ENABLE_REAL_OPENAI_TESTS === "true" },
+    flags: { production, demoProject, firestoreEmulator, authEmulator, openAiMock, xApiMock, allowRealOpenAiWithEmulator, realOpenAiTests: env.ENABLE_REAL_OPENAI_TESTS === "true" },
     checks,
   };
 }

@@ -8,6 +8,8 @@
     "dev:emulator": "VITE_USE_FIREBASE=true VITE_USE_FIREBASE_EMULATORS=true VITE_USE_MOCK_DATA=false VITE_USE_X_API_MOCK=true VITE_DEFAULT_TAB=dashboard VITE_LOCAL_AUTO_LOGIN=true VITE_LOCAL_QUALITY_MODE=true vite --host 0.0.0.0 --port 5174 --strictPort",
     "dev:local-ui": "VITE_USE_FIREBASE=true VITE_USE_FIREBASE_EMULATORS=true VITE_USE_MOCK_DATA=false VITE_USE_X_API_MOCK=true VITE_DEFAULT_TAB=dashboard VITE_LOCAL_AUTO_LOGIN=true VITE_LOCAL_QUALITY_MODE=true vite --host 0.0.0.0 --port 5174 --strictPort",
     "dev:local": "node scripts/devLocal.cjs",
+    "dev:local:x-real": "X_API_MOCK_MODE=false VITE_USE_X_API_MOCK=false OPENAI_MOCK_MODE=true node scripts/devLocal.cjs",
+    "dev:local:real": "X_API_MOCK_MODE=false VITE_USE_X_API_MOCK=false OPENAI_MOCK_MODE=false VITE_OPENAI_MOCK_MODE=false ALLOW_REAL_OPENAI_WITH_EMULATOR=true VITE_ALLOW_REAL_OPENAI_WITH_EMULATOR=true ENABLE_REAL_OPENAI_TESTS=true VITE_ENABLE_REAL_OPENAI_TESTS=true node scripts/devLocal.cjs",
     "emulators": "FIREBASE_PROJECT_ID=demo-x-reply-intelligence GCLOUD_PROJECT=demo-x-reply-intelligence X_API_MOCK_MODE=true node scripts/firebaseLocalExec.cjs emulators:start --only auth,firestore,functions --import=.firebase-emulator-data/manual --export-on-exit=.firebase-emulator-data/manual",
     "emulators:export": "node scripts/firebaseLocalExec.cjs emulators:export .firebase-emulator-data/manual",
     "emulators:import": "FIREBASE_PROJECT_ID=demo-x-reply-intelligence GCLOUD_PROJECT=demo-x-reply-intelligence X_API_MOCK_MODE=true node scripts/firebaseLocalExec.cjs emulators:start --only auth,firestore,functions --import=.firebase-emulator-data/manual --export-on-exit=.firebase-emulator-data/manual",
