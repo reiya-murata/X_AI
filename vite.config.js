@@ -15,7 +15,7 @@ function runGit(args) {
 function getReleaseInfo() {
   const dirty = runGit(["status", "--porcelain"]) !== "";
   return {
-    releaseCandidateVersion: process.env.RELEASE_CANDIDATE_VERSION || "phase5.3-rc1",
+    releaseCandidateVersion: process.env.RELEASE_CANDIDATE_VERSION || "phase5.4-rc1",
     gitCommitHash: runGit(["rev-parse", "--short", "HEAD"]) || "unknown",
     buildTimestamp: new Date().toISOString(),
     workingTreeDirty: dirty,

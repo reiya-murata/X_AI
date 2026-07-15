@@ -59,7 +59,7 @@ seed、dev admin、local-mockは `demo-` projectとFirebase Emulatorの組み合
 
 ## Release Candidateと運用開始
 
-現在の安定版は `phase5.3-rc1` として表示されます。ビルド時のGit commit、build日時、dirty状態は本番準備画面と `npm run release:status` で確認できます。
+現在の安定版は `phase5.4-rc1` として表示されます。ビルド時のGit commit、build日時、dirty状態は本番準備画面と `npm run release:status` で確認できます。
 
 運用開始前の一括確認は次のコマンドを使います。
 
