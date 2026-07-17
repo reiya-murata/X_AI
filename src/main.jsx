@@ -1274,7 +1274,7 @@ function ProductionReadinessPanel({ authState }) {
   };
   useEffect(() => { if (authState.user && authState.admin) refresh(); }, [authState.user, authState.admin]);
   const server = result || { connectivity: {}, configuration: {}, environment: { flags: {} } };
-  const releaseCandidate = runtimeInfo.releaseCandidateVersion || "phase5.4-rc1";
+  const releaseCandidate = runtimeInfo.releaseCandidateVersion || "phase5.5-rc1";
   const releaseInfo = [
     ["RC", releaseCandidate],
     ["Git", runtimeInfo.gitCommitHash || "unknown"],

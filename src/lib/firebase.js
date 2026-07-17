@@ -60,7 +60,7 @@ export const runtimeInfo = {
   functionsEnv: clientEnvironment.functionsEnv,
   openAi: clientEnvironment.openAiMock ? "Mock" : "Real",
   automaticPosting: false,
-  releaseCandidateVersion: import.meta.env.VITE_RELEASE_CANDIDATE_VERSION || "phase5.4-rc1",
+  releaseCandidateVersion: import.meta.env.VITE_RELEASE_CANDIDATE_VERSION || "phase5.5-rc1",
   gitCommitHash: import.meta.env.VITE_RELEASE_GIT_COMMIT || "unknown",
   buildTimestamp: import.meta.env.VITE_RELEASE_BUILD_TIMESTAMP || new Date().toISOString(),
   workingTreeDirty: import.meta.env.VITE_RELEASE_WORKTREE_DIRTY === "true",
