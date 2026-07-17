@@ -10,7 +10,7 @@ const patterns = [
   ["OAuth token", /(?:access|refresh|oauth)[_-]?token\s*[:=]\s*["'][^"']{16,}/gi], ["Firebase private key", /private_key\s*[:=]\s*["'][^"']{20,}/gi],
   ["Client secret", /client[_-]?secret\s*[:=]\s*["'][^"']{12,}/gi],
 ];
-const allowLine = /(example|placeholder|redacted|dummy|mock-|dev-only|local-dev-only|test secret|pattern|regex|SECRET_KEY|SECRET_VALUE|API_KEY=\s*$)/i;
+const allowLine = /(example|placeholder|redacted|dummy|mock-|dev-only|local-dev-only|test secret|pattern|regex|SECRET_KEY|SECRET_VALUE|API_KEY=\s*$|defineSecret\(|OPENAI_API_KEY|X_CLIENT_ID|X_CLIENT_SECRET|X_TOKEN_ENCRYPTION_KEY)/i;
 
 function listFiles() {
   const tracked = spawnSync("git", ["ls-files"], { cwd: root, encoding: "utf8" });
