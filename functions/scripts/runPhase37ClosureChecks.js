@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const { deprecatedAiCallable } = require("../src/phase3/deprecatedCallables");
 const client = require("../src/openai/client");
+const { pickScenario } = require("../src/phase3/mockFixtures");
 
 process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || "test-key";
 process.env.OPENAI_MOCK_MODE = "false";
@@ -85,6 +86,32 @@ async function main() {
   assert.equal(movieResult.finalRecommendation, "skip");
   assert.deepEqual(movieResult.decision.selectedExperienceIds || [], []);
   assert.deepEqual(movieResult.decision.selectedOpinionIds || [], []);
+
+  const webScenario = pickScenario({
+    text: "Web制作とAIは、作る速さより、要件整理と確認のどこに置くかで効き方が変わりますね。",
+    authorName: "Web制作者",
+    authorUsername: "web_creator",
+  });
+  const webTexts = webScenario.generation.candidates.map((item) => item.text);
+  assert.match(webTexts[0], /^まさにそこだと思います。/);
+  assert.match(webTexts[1], /^自分も作る工程より、人の確認をどこに残すかの方が設計で悩みました。/);
+  assert.match(webTexts[2], /^AIを足すより、確認と修正の順番を先に決めた方がいいと思います。/);
+  for (const phrase of [
+    "生産性向上の鍵",
+    "より効果的",
+    "可能になります",
+    "現場での経験が大事",
+    "実際の運用が鍵",
+    "競争力の源",
+    "差をつける",
+    "成果につながる",
+    "期待できそう",
+    "一助となる",
+    "重要です",
+    "大切ですね",
+  ]) {
+    assert.ok(!webTexts.some((text) => text.includes(phrase)));
+  }
 
   client.getOpenAiClient = originalGetOpenAiClient;
   client.runModeration = originalRunModeration;

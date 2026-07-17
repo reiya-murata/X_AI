@@ -96,24 +96,24 @@ const scenarios = {
       contextProblems: [],
       riskFlags: [],
     },
-    generation: {
-      shouldGenerate: true,
-      generationSummary: "制作現場とAIの接続点を具体化します。",
+      generation: {
+        shouldGenerate: true,
+      generationSummary: "制作フローのどこにAIを入れるかを具体化します。",
       replyGoal: "audience_value",
       usedProjectIds: ["live-manual-ai"],
       usedExperienceIds: ["exp-live-manual-ai"],
       usedOpinionIds: ["op-ai-small-bottleneck"],
       usedWriterInstructionIds: [],
       candidates: [
-        { candidateKey: "A", type: "short_natural", text: "Web制作とAIは、作る速さより運用にどう入れるかで差がつきそうです。", angleSummary: "運用への接続", usedClaimEvidence: [{ experienceId: "exp-live-manual-ai", claimLevel: "implemented", usedExpression: "運用にどう入れるか" }] },
-        { candidateKey: "B", type: "implementation_experience", text: "制作の延長でAIを触ると、見た目より更新フローの方が先に詰まることが多いです。そこを先に整えると、現場で回りやすくなります。", angleSummary: "更新フロー", usedClaimEvidence: [{ experienceId: "exp-live-manual-ai", claimLevel: "implemented", usedExpression: "更新フロー" }] },
-        { candidateKey: "C", type: "structure_or_conversation", text: "AIはWebを置き換えるというより、更新や改善の回路を短くする方向が現実的ですよね。", angleSummary: "回路短縮", usedClaimEvidence: [{ experienceId: "exp-live-manual-ai", claimLevel: "implemented", usedExpression: "更新や改善の回路を短くする" }] },
+        { candidateKey: "A", type: "short_natural", text: "まさにそこだと思います。AIを使えるかより、要件整理・制作・確認・修正のどこに入れるかで全然変わる。そこを決めるだけで、手戻りはかなり減ります。", angleSummary: "工程への配置", usedClaimEvidence: [{ experienceId: "exp-live-manual-ai", claimLevel: "implemented", usedExpression: "要件整理と確認の配置を決める" }] },
+        { candidateKey: "B", type: "implementation_experience", text: "自分も作る工程より、人の確認をどこに残すかの方が設計で悩みました。そこが曖昧だと、あとで修正が増えやすいです。", angleSummary: "確認を残す設計", usedClaimEvidence: [{ experienceId: "exp-live-manual-ai", claimLevel: "implemented", usedExpression: "人の確認を残した" }] },
+        { candidateKey: "C", type: "structure_or_conversation", text: "AIを足すより、確認と修正の順番を先に決めた方がいいと思います。そこが曖昧だと、結局もどります。", angleSummary: "順番の整理", usedClaimEvidence: [{ experienceId: "exp-live-manual-ai", claimLevel: "implemented", usedExpression: "確認と修正の順番を決める" }] },
       ],
       recommendedCandidateKey: "B",
-      recommendationReason: "制作現場の更新フローに具体性があります。",
+      recommendationReason: "要件整理と確認の置き方が具体で、個人のXリプとして自然です。",
       generationRiskFlags: [],
     },
-    judge: buildReadyJudge("B", "制作現場への接続が具体的です。"),
+    judge: buildReadyJudge("B", "制作フローへの接続が具体的です。"),
   },
   store_meo: {
     assessment: {

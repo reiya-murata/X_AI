@@ -141,7 +141,7 @@ async function processCandidateWithAi(args) {
       ? { output_parsed: buildMockReplyDecision(candidate), response: null, mock: true, usage: null }
       : await runReplyDecisionModel({ candidate, identity, localScores, selected, recentSimilarReplies });
     const validatedDecision = validateReplyDecision(result.data || result.output_parsed, candidate, selected, identity);
-    const decision = applyContextFallback(validatedDecision, selected, localScores, candidate, identity);
+    const decision = enforceConcreteReplyStyle(applyContextFallback(validatedDecision, selected, localScores, candidate, identity), candidate, selected, identity);
     const usage = result.usage || null;
     if (firebaseUid) {
       await logAiUsage({
@@ -391,6 +391,15 @@ function validateReplyDecision(decision, candidate, selected, identity) {
 
 function applyContextFallback(decision, selected, localScores, candidate, identity) {
   if (!decision?.shouldReply) return decision;
+  const hasDecisionContext = Boolean(
+    (decision.selectedProjectIds || []).length
+    || (decision.selectedExperienceIds || []).length
+    || (decision.selectedOpinionIds || []).length
+    || (decision.selectedWriterInstructionIds || []).length
+  );
+  if (hasDecisionContext) {
+    return decision;
+  }
   if (!shouldUseContextForCandidate(candidate, localScores, selected)) {
     return decision;
   }
@@ -404,6 +413,87 @@ function applyContextFallback(decision, selected, localScores, candidate, identi
     selectedExperienceIds: normalizedContext.selectedExperienceIds,
     selectedOpinionIds: normalizedContext.selectedOpinionIds,
     selectedWriterInstructionIds: [],
+  };
+}
+
+function enforceConcreteReplyStyle(decision, candidate, selected, identity) {
+  if (!decision?.shouldReply || !decision?.replies) return decision;
+  if (!isWebStyleCandidate(candidate)) return decision;
+  if (!hasAbstractWebReply(decision.replies)) return decision;
+  const contextualClaim = pickConcreteClaimFromSelection(selected, identity);
+  const concreteReplies = buildConcreteWebReplies({ contextualClaim, sourceDecision: decision, candidate });
+  return {
+    ...decision,
+    recommendedCandidateKey: "B",
+    replies: concreteReplies,
+    decisionSummary: decision.decisionSummary || "Web制作では、AIをどこに挟むかを具体化できます。",
+  };
+}
+
+function isWebStyleCandidate(candidate) {
+  const text = `${candidate?.text || ""} ${candidate?.authorName || ""} ${candidate?.authorUsername || ""}`.toLowerCase();
+  return ["web", "web制作", "web制作者", "制作", "コード", "ui", "ux"].some((needle) => text.includes(needle));
+}
+
+function hasAbstractWebReply(replies) {
+  const genericPatterns = [
+    /AIの普及/,
+    /人の目.*不可欠/,
+    /AIによる自動化/,
+    /自動化が進む/,
+    /クリエイティブな/,
+    /重要だ/,
+    /必要だ/,
+    /不可欠/,
+    /寄与/,
+  ];
+  return Object.values(replies).some((reply) => genericPatterns.some((pattern) => pattern.test(String(reply?.text || ""))));
+}
+
+function pickConcreteClaimFromSelection(selected, identity) {
+  const experience = (selected?.selectedExperiences || [])[0] || null;
+  const claim = experience?.usableClaims?.[0] || "";
+  const title = experience?.title || "";
+  const projectId = experience?.projectId || "";
+  const fallback = title.includes("FAQ") || projectId === "live-manual-ai"
+    ? "未回答や例外を拾って改善へ戻す流れ"
+    : title.includes("MEO")
+      ? "口コミ返信や写真依頼を毎週回す流れ"
+      : "要件整理と確認の置き方";
+  return claim || fallback;
+}
+
+function buildConcreteWebReplies({ contextualClaim, sourceDecision }) {
+  const baseEvidenceA = sourceDecision.replies?.A?.usedClaimEvidence || [];
+  const baseEvidenceB = sourceDecision.replies?.B?.usedClaimEvidence || [];
+  const baseEvidenceC = sourceDecision.replies?.C?.usedClaimEvidence || [];
+  const focus = contextualClaim.includes("未回答") ? "更新確認" : "要件整理と確認";
+  const middlePhrase = contextualClaim.includes("未回答")
+    ? "未回答や例外の拾い方"
+    : contextualClaim.includes("マニュアル")
+      ? "マニュアル更新"
+      : contextualClaim.includes("口コミ")
+        ? "口コミ返信"
+        : "更新確認";
+  return {
+    A: {
+      ...(sourceDecision.replies?.A || { candidateKey: "A" }),
+      candidateKey: "A",
+      text: `Web制作だと、AIは作る速さより、${focus}のどこに置くかで効き方が変わりますね。そこを先に決めるだけで手戻りが減りそうです。`,
+      usedClaimEvidence: baseEvidenceA,
+    },
+    B: {
+      ...(sourceDecision.replies?.B || { candidateKey: "B" }),
+      candidateKey: "B",
+      text: `自分は制作の延長でAIを触ると、見た目より${middlePhrase}の方が先に詰まりました。人の確認を残した方が安定しました。`,
+      usedClaimEvidence: baseEvidenceB,
+    },
+    C: {
+      ...(sourceDecision.replies?.C || { candidateKey: "C" }),
+      candidateKey: "C",
+      text: `AIを足すだけだと薄くて、どの工程を短くするかが先だと思います。${focus}で効き方が変わります。`,
+      usedClaimEvidence: baseEvidenceC,
+    },
   };
 }
 
@@ -789,6 +879,18 @@ function deriveDecisionClaimLevel(decision, identity) {
 }
 
 function compactSelectedContextIds(decision, selected) {
+  const replyContextIds = [];
+  const recommendedKey = decision?.recommendedCandidateKey || "A";
+  const recommendedReply = decision?.replies?.[recommendedKey] || decision?.replies?.A || null;
+  for (const evidence of recommendedReply?.usedClaimEvidence || []) {
+    if (evidence?.experienceId && !replyContextIds.includes(evidence.experienceId)) {
+      replyContextIds.push(evidence.experienceId);
+    }
+    if (replyContextIds.length >= 2) break;
+  }
+  if (replyContextIds.length > 0) {
+    return replyContextIds.slice(0, 2);
+  }
   const idsFromDecision = [
     ...(decision?.selectedExperienceIds || []),
     ...(decision?.selectedOpinionIds || []),

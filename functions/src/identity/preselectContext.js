@@ -8,7 +8,8 @@ function preselectContext({ candidate, identity }) {
       [item.title, item.description, ...(item.relatedKeywords || []), ...(item.usableClaims || []), ...(item.prohibitedClaims || [])],
       text,
       tokens,
-    ) + (item.priority || 0),
+    ) + (item.priority || 0)
+      + webWorkflowBoost(item, text),
     publicUseAllowed: item.publicUseAllowed,
     useForReply: item.useForReply,
   }));
@@ -19,7 +20,8 @@ function preselectContext({ candidate, identity }) {
       [item.title, item.description, ...(item.relatedKeywords || []), ...(item.usableClaims || []), ...(item.prohibitedClaims || [])],
       text,
       tokens,
-    ) + (item.priority || 0),
+    ) + (item.priority || 0)
+      + webWorkflowBoost(item, text),
     publicUseAllowed: item.publicUseAllowed,
     useForReply: item.useForReply,
     claimLevel: item.claimLevel,
@@ -84,6 +86,16 @@ function scoreKeywords(categories = [], keywords = [], text = "", tokens = []) {
     if (hay.includes(token)) score += genericKeywords.has(token) ? 0.1 : 1.2;
   }
   return score;
+}
+
+function webWorkflowBoost(item, text) {
+  const webSignals = ["web", "web制作者", "web制作", "制作", "コード", "更新", "修正", "要件", "確認"];
+  const webHit = webSignals.some((needle) => String(text || "").toLowerCase().includes(needle));
+  if (!webHit) return 0;
+  if (item.projectId === "live-manual-ai") return 10;
+  if (item.projectId === "ai-sales-researcher") return -12;
+  if (item.projectId === "meo-assistant") return -6;
+  return 0;
 }
 
 module.exports = { preselectContext };
