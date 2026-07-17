@@ -29,10 +29,14 @@ export function evaluateClientEnvironment(config) {
 }
 
 export function buildClientEnvironment(importMetaEnv, hostname) {
+  const appEnv = importMetaEnv.VITE_APP_ENV || importMetaEnv.MODE || "development";
+  const production = appEnv === "production";
   const projectId = importMetaEnv.VITE_FIREBASE_PROJECT_ID || (importMetaEnv.VITE_USE_FIREBASE_EMULATORS === "true" ? "demo-x-reply-intelligence" : "x-reply-intelligence");
-  const openAiMock = importMetaEnv.VITE_OPENAI_MOCK_MODE !== "false";
+  const openAiMock = production
+    ? importMetaEnv.VITE_OPENAI_MOCK_MODE === "true"
+    : importMetaEnv.VITE_OPENAI_MOCK_MODE !== "false";
   return {
-    appEnv: importMetaEnv.VITE_APP_ENV || importMetaEnv.MODE || "development",
+    appEnv,
     functionsEnv: importMetaEnv.VITE_FUNCTIONS_ENV || "development",
     projectId,
     emulators: importMetaEnv.VITE_USE_FIREBASE_EMULATORS === "true",
