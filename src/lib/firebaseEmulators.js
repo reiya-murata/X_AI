@@ -11,7 +11,7 @@ export function connectFirebaseEmulators({ auth, db, functions, connectAuthEmula
   connectFirestoreEmulator(
     db,
     import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || "127.0.0.1",
-    Number(import.meta.env.VITE_FIRESTORE_EMULATOR_PORT || 8081),
+    Number(import.meta.env.VITE_FIRESTORE_EMULATOR_PORT || 8082),
   );
   connectFunctionsEmulator(
     functions,

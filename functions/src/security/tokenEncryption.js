@@ -51,7 +51,14 @@ function createCodeChallenge(codeVerifier) {
 }
 
 function getKey() {
-  const raw = process.env.X_TOKEN_ENCRYPTION_KEY || "dev-only-32-byte-key-for-local!!";
+  const raw = process.env.X_TOKEN_ENCRYPTION_KEY;
+  const production = process.env.APP_ENV === "production" || process.env.FUNCTIONS_ENV === "production";
+  if (!raw) {
+    if (production) {
+      throw new Error("X_TOKEN_ENCRYPTION_KEY is required in production.");
+    }
+    return Buffer.from("dev-only-32-byte-key-for-local!!", "utf8");
+  }
   if (/^[A-Za-z0-9+/=]{44}$/.test(raw)) {
     return Buffer.from(raw, "base64");
   }

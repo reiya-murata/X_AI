@@ -11,7 +11,15 @@ function main() {
   const releaseInfo = getReleaseInfo();
   const env = process.env;
   const safety = evaluateServerEnvironment(env, env.APP_ENV || env.FUNCTIONS_ENV || "development");
-  const projectId = safety.projectId || env.GCLOUD_PROJECT || env.GOOGLE_CLOUD_PROJECT || env.FIREBASE_PROJECT_ID || "未設定";
+  const firebaseRcPath = path.resolve(__dirname, "../.firebaserc");
+  let firebaseRcProjectId = null;
+  try {
+    const firebaseRc = JSON.parse(fs.readFileSync(firebaseRcPath, "utf8"));
+    firebaseRcProjectId = firebaseRc?.projects?.default || null;
+  } catch {
+    firebaseRcProjectId = null;
+  }
+  const projectId = safety.projectId || env.GCLOUD_PROJECT || env.GOOGLE_CLOUD_PROJECT || env.FIREBASE_PROJECT_ID || firebaseRcProjectId || "未設定";
   const emulatorState = [
     `Auth=${safety.flags.authEmulator ? "有効" : "無効"}`,
     `Firestore=${safety.flags.firestoreEmulator ? "有効" : "無効"}`,

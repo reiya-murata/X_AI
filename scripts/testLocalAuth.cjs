@@ -13,7 +13,7 @@ function runSeed(env) {
 function main() {
   const baseEnv = {
     FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097",
-    FIRESTORE_EMULATOR_HOST: "127.0.0.1:8081",
+    FIRESTORE_EMULATOR_HOST: "127.0.0.1:8082",
     FIREBASE_PROJECT_ID: "demo-x-reply-intelligence",
     GCLOUD_PROJECT: "demo-x-reply-intelligence",
   };

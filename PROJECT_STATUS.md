@@ -12,7 +12,7 @@
 - Runtime: `.nvmrc`とFunctions engineはNode 20。
 - Frontend: React 18 + Vite 6 + Firebase Web SDK。
 - Backend: Firebase Functions v2、Firebase Admin、Firestore、OpenAI SDK、Zod。
-- Firebase: 本番aliasは`x-reply-intelligence`。ローカルはwrapperから`demo-x-reply-intelligence`を明示し、Auth 9097 / Firestore 8081 / Functions 5003 / UI 5174を使う。
+- Firebase: 本番aliasは`x-ai-322c9`。ローカルはwrapperから`demo-x-reply-intelligence`を明示し、Auth 9097 / Firestore 8082 / Functions 5003 / UI 5174を使う。
 - 認証: 管理操作はFirebase Authと`admin: true` custom claimが必要。Functionsは`requireAdmin`を維持する。
 - AI: 既定モデル`gpt-4o-mini`の1候補1 Responses APIフロー。モデルは環境変数で上書き可能。旧assessment/Judge/自動再生成経路は廃止Callableとしてfail-fastする。
 - X: OAuth PKCE、読み取りAPI、token暗号化を実装。返信送信APIはなく、人間がWeb Intentで送信する。

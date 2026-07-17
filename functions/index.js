@@ -32,6 +32,7 @@ const {
 const { normalizeHumanQualityEvaluation } = require("./src/phase3/humanEvaluation");
 const { saveHumanEvaluation, cleanupExpiredEvaluationFingerprints } = require("./src/phase3/humanEvaluationStore");
 const { evaluateServerEnvironment } = require("./src/environmentSafety");
+const { secretBindings, withSecrets } = require("./src/secrets");
 const {
   transitionCandidate,
   saveWorkflowDraft,
@@ -88,7 +89,7 @@ exports.generateReplyTest = onCall({ region: "asia-northeast1" }, async (request
   return generateLocalReplyTest(parsed.data.originalPostText);
 });
 
-exports.beginXOAuth = onCall({ region: "asia-northeast1" }, async (request) => {
+exports.beginXOAuth = onCall(withSecrets(...secretBindings.xOAuthStart), async (request) => {
   const adminUser = requireAdmin(request);
   if (isMockMode()) {
     return { authorizationUrl: `${appBaseUrl()}/?x_oauth=mock_success`, mock: true };
@@ -125,7 +126,7 @@ exports.beginXOAuth = onCall({ region: "asia-northeast1" }, async (request) => {
   return { authorizationUrl: `https://x.com/i/oauth2/authorize?${params.toString()}` };
 });
 
-exports.xOAuthCallback = onRequest({ region: "asia-northeast1" }, async (req, res) => {
+exports.xOAuthCallback = onRequest(withSecrets(...secretBindings.xOAuthCallback), async (req, res) => {
   console.log("xOAuthCallback:start", {
     hasCode: Boolean(req.query.code),
     hasState: Boolean(req.query.state),
@@ -297,7 +298,7 @@ exports.getSyncOverview = onCall({ region: "asia-northeast1" }, async (request) 
   };
 });
 
-exports.fetchHomeTimelineNow = onCall({ region: "asia-northeast1" }, async (request) => {
+exports.fetchHomeTimelineNow = onCall(withSecrets(...secretBindings.xApi), async (request) => {
   const adminUser = requireAdmin(request);
   console.log("fetchHomeTimelineNow:start", { uid: adminUser.uid, xApiMockMode: isMockMode() });
   const connection = await getConnectionForSync(adminUser.uid);
@@ -328,7 +329,7 @@ exports.fetchHomeTimelineNow = onCall({ region: "asia-northeast1" }, async (requ
   }
 });
 
-exports.fetchWatchListTimelineNow = onCall({ region: "asia-northeast1" }, async (request) => {
+exports.fetchWatchListTimelineNow = onCall(withSecrets(...secretBindings.xApi), async (request) => {
   const adminUser = requireAdmin(request);
   const parsed = FetchWatchListSchema.safeParse(request.data);
   if (!parsed.success) throw new HttpsError("invalid-argument", "監視リストIDを確認してください。");
@@ -374,7 +375,7 @@ exports.generateReplyDraftWithAi = onCall({ region: "asia-northeast1" }, async (
   return deprecatedAiCallable("generateReplyDraftWithAi")();
 });
 
-exports.processCandidateWithAi = onCall({ region: "asia-northeast1" }, async (request) => {
+exports.processCandidateWithAi = onCall(withSecrets(...secretBindings.openAi), async (request) => {
   const adminUser = requireAdmin(request);
   return processCandidateWithAi({
     db,
@@ -385,7 +386,7 @@ exports.processCandidateWithAi = onCall({ region: "asia-northeast1" }, async (re
   });
 });
 
-exports.processCandidateBatchWithAi = onCall({ region: "asia-northeast1" }, async (request) => {
+exports.processCandidateBatchWithAi = onCall(withSecrets(...secretBindings.openAi), async (request) => {
   const adminUser = requireAdmin(request);
   return processCandidateBatchWithAi({
     db,
@@ -451,7 +452,7 @@ exports.getPhase4OperationsSummary = onCall({ region: "asia-northeast1" }, async
   return getOperationsSummary({ db });
 });
 
-exports.getProductionReadiness = onCall({ region: "asia-northeast1" }, async (request) => {
+exports.getProductionReadiness = onCall(withSecrets(...secretBindings.openAi), async (request) => {
   const user = requireAdmin(request);
   const environment = evaluateServerEnvironment(process.env, process.env.APP_ENV === "production" ? "production" : "staging");
   let firestoreReadable = false;

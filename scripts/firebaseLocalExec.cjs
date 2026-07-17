@@ -34,6 +34,7 @@ function buildFirebaseEnv(baseEnv = process.env, repoRoot = getRepoRoot()) {
   const firebaseHome = getLocalFirebaseHome(repoRoot);
   const xdgConfigHome = path.join(firebaseHome, "config");
   const xdgCacheHome = path.join(firebaseHome, "cache");
+  const javaHome = baseEnv.JAVA_HOME || "/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home";
   ensureDir(firebaseHome);
   ensureDir(xdgConfigHome);
   ensureDir(xdgCacheHome);
@@ -42,6 +43,7 @@ function buildFirebaseEnv(baseEnv = process.env, repoRoot = getRepoRoot()) {
     HOME: firebaseHome,
     XDG_CONFIG_HOME: xdgConfigHome,
     XDG_CACHE_HOME: xdgCacheHome,
+    JAVA_HOME: javaHome,
     npm_config_update_notifier: "false",
   };
 }

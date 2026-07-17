@@ -6,15 +6,15 @@ const base = { GCLOUD_PROJECT: "x-reply-intelligence", APP_ENV: "production", OP
 assert.equal(evaluateServerEnvironment(base, "production").ok, false);
 assert.ok(evaluateServerEnvironment(base, "production").checks.some((item) => item.id === "production_mock"));
 assert.equal(evaluateServerEnvironment({ ...base, APP_ENV: "development" }, "local").ok, false);
-assert.throws(() => assertDemoWriteEnvironment({ ...base, FIRESTORE_EMULATOR_HOST: "127.0.0.1:8081", FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097" }), /demo Firebase Emulator/);
+assert.throws(() => assertDemoWriteEnvironment({ ...base, FIRESTORE_EMULATOR_HOST: "127.0.0.1:8082", FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097" }), /demo Firebase Emulator/);
 assert.throws(() => assertRuntimeOperationAllowed(base), /UNSAFE_RUNTIME_ENVIRONMENT/);
-assert.doesNotThrow(() => assertDemoWriteEnvironment({ GCLOUD_PROJECT: "demo-x", APP_ENV: "development", OPENAI_MOCK_MODE: "true", X_API_MOCK_MODE: "true", FIRESTORE_EMULATOR_HOST: "127.0.0.1:8081", FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097" }));
+assert.doesNotThrow(() => assertDemoWriteEnvironment({ GCLOUD_PROJECT: "demo-x", APP_ENV: "development", OPENAI_MOCK_MODE: "true", X_API_MOCK_MODE: "true", FIRESTORE_EMULATOR_HOST: "127.0.0.1:8082", FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097" }));
 assert.equal(
-  evaluateServerEnvironment({ GCLOUD_PROJECT: "demo-x", APP_ENV: "development", OPENAI_MOCK_MODE: "false", X_API_MOCK_MODE: "true", FIRESTORE_EMULATOR_HOST: "127.0.0.1:8081", FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097", ALLOW_REAL_OPENAI_WITH_EMULATOR: "true", ENABLE_REAL_OPENAI_TESTS: "true" }, "local").ok,
+  evaluateServerEnvironment({ GCLOUD_PROJECT: "demo-x", APP_ENV: "development", OPENAI_MOCK_MODE: "false", X_API_MOCK_MODE: "true", FIRESTORE_EMULATOR_HOST: "127.0.0.1:8082", FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097", ALLOW_REAL_OPENAI_WITH_EMULATOR: "true", ENABLE_REAL_OPENAI_TESTS: "true" }, "local").ok,
   true,
 );
 assert.equal(
-  evaluateServerEnvironment({ GCLOUD_PROJECT: "demo-x", APP_ENV: "development", OPENAI_MOCK_MODE: "false", X_API_MOCK_MODE: "true", FIRESTORE_EMULATOR_HOST: "127.0.0.1:8081", FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097" }, "local").ok,
+  evaluateServerEnvironment({ GCLOUD_PROJECT: "demo-x", APP_ENV: "development", OPENAI_MOCK_MODE: "false", X_API_MOCK_MODE: "true", FIRESTORE_EMULATOR_HOST: "127.0.0.1:8082", FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097" }, "local").ok,
   false,
 );
 const preflight = fs.readFileSync(require.resolve("./preflight.cjs"), "utf8");

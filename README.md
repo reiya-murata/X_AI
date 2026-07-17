@@ -117,7 +117,7 @@ npm run emulators
 
 ```bash
 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9097 \
-FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 \
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8082 \
 FIREBASE_PROJECT_ID=demo-x-reply-intelligence \
 EMULATOR_ADMIN_EMAIL=admin@example.local \
 EMULATOR_ADMIN_PASSWORD='your-local-password' \
@@ -136,7 +136,7 @@ npm run test:e2e:ai
 
 `test:e2e` / `test:e2e:ai` / `test:phase37:real` は `scripts/firebaseLocalExec.cjs` を通して実行され、Firebase CLI の config home をリポジトリ直下の `.firebase-home/` に閉じ込めます。これでグローバルな `~/.config` や個人の Firebase/Google Cloud 設定に触れません。
 
-標準ポートは Auth `9097`、Firestore `8081`、Functions `5003`、Hosting `5002`、Emulator UI `4000` です。既に使われている場合は、`firebase.json`、`.env.example`、Vite起動時の環境変数を同じ値へ揃えてください。
+標準ポートは Auth `9097`、Firestore `8082`、Functions `5003`、Hosting `5002`、Emulator UI `4000` です。既に使われている場合は、`firebase.json`、`.env.example`、Vite起動時の環境変数を同じ値へ揃えてください。
 
 X_AI の開発UIは `5174` 固定です。Threads_AI の `5173` とは並行利用できます。`VITE_LOCAL_AUTO_LOGIN=false` にすると、ローカル自動ログインを無効化できます。
 
@@ -163,7 +163,7 @@ VITE_USE_FIREBASE_EMULATORS=true
 VITE_USE_X_API_MOCK=true
 VITE_FIREBASE_AUTH_EMULATOR_URL=http://127.0.0.1:9097
 VITE_FIRESTORE_EMULATOR_HOST=127.0.0.1
-VITE_FIRESTORE_EMULATOR_PORT=8081
+VITE_FIRESTORE_EMULATOR_PORT=8082
 VITE_FUNCTIONS_EMULATOR_HOST=127.0.0.1
 VITE_FUNCTIONS_EMULATOR_PORT=5003
 ```
@@ -178,7 +178,7 @@ X_OAUTH_REDIRECT_URI=
 X_TOKEN_ENCRYPTION_KEY=
 APP_BASE_URL=
 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9097
-FIRESTORE_EMULATOR_HOST=127.0.0.1:8081
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8082
 FIREBASE_PROJECT_ID=demo-x-reply-intelligence
 EMULATOR_ADMIN_EMAIL=
 EMULATOR_ADMIN_PASSWORD=

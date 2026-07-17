@@ -10,7 +10,7 @@ const testEnv = await initializeTestEnvironment({
   projectId: "x-reply-intelligence-rules-test",
   firestore: {
     host: process.env.FIRESTORE_EMULATOR_HOST?.split(":")[0] || "127.0.0.1",
-    port: Number(process.env.FIRESTORE_EMULATOR_HOST?.split(":")[1] || 8081),
+    port: Number(process.env.FIRESTORE_EMULATOR_HOST?.split(":")[1] || 8082),
     rules: fs.readFileSync("firestore.rules", "utf8"),
   },
 });

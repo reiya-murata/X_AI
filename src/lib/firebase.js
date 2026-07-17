@@ -20,9 +20,9 @@ import { buildClientEnvironment, evaluateClientEnvironment } from "../environmen
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "emulator-api-key",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "x-reply-intelligence.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || (import.meta.env.VITE_USE_FIREBASE_EMULATORS === "true" ? "demo-x-reply-intelligence" : "x-reply-intelligence"),
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "x-reply-intelligence.appspot.com",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "x-ai-322c9.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || (import.meta.env.VITE_USE_FIREBASE_EMULATORS === "true" ? "demo-x-reply-intelligence" : "x-ai-322c9"),
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "x-ai-322c9.appspot.com",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "000000000000",
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:000000000000:web:0000000000000000000000",
 };

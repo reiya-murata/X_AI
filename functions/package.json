@@ -13,6 +13,7 @@
     "test:phase35": "node scripts/runPhase35Checks.js",
     "test:phase37:safety": "node scripts/runPhase37SafetyChecks.js",
     "test:phase37:closure": "node scripts/runPhase37ClosureChecks.js",
+    "test:secrets": "node scripts/runSecretManagerChecks.js",
     "test:phase4": "node scripts/runPhase4Checks.js",
     "test:x-sync": "node scripts/runTimelineSyncChecks.js",
     "emulator:phase4:e2e": "node scripts/emulatorPhase4E2E.js",

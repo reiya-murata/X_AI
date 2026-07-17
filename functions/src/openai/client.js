@@ -13,7 +13,10 @@ function getOpenAiClient() {
 }
 
 function isOpenAiMockMode() {
-  return process.env.OPENAI_MOCK_MODE === "true" || !process.env.OPENAI_API_KEY;
+  if (process.env.OPENAI_MOCK_MODE === "true") return true;
+  const production = process.env.APP_ENV === "production" || process.env.FUNCTIONS_ENV === "production";
+  if (production) return false;
+  return !process.env.OPENAI_API_KEY;
 }
 
 async function runStructuredOutput({ model, input, schema, schemaName, timeoutMs = 30_000 }) {

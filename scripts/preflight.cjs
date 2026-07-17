@@ -13,7 +13,7 @@ function envForMode() {
     APP_ENV: "development", FUNCTIONS_ENV: "development",
     FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID || "demo-x-reply-intelligence",
     GCLOUD_PROJECT: process.env.GCLOUD_PROJECT || "demo-x-reply-intelligence",
-    FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8081",
+    FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8082",
     FIREBASE_AUTH_EMULATOR_HOST: process.env.FIREBASE_AUTH_EMULATOR_HOST || "127.0.0.1:9097",
     OPENAI_MOCK_MODE: "true", X_API_MOCK_MODE: "true",
   };

@@ -6,7 +6,7 @@ const path = require("node:path");
 const repoRoot = path.resolve(__dirname, "..");
 const demoProjectId = "demo-x-reply-intelligence";
 const emulatorDataDir = path.join(repoRoot, ".firebase-emulator-data", "manual");
-const ports = [9097, 8081, 5003];
+const ports = [9097, 8082, 5003];
 const rootEnvPath = path.join(repoRoot, ".env");
 const emulatorImportMetadataCandidates = [
   path.join(emulatorDataDir, "firebase-export-metadata.json"),
@@ -97,7 +97,7 @@ function buildEmulatorEnv(rootEnv = loadRootEnv()) {
     GOOGLE_CLOUD_PROJECT: demoProjectId,
     FIREBASE_CONFIG: getFirebaseConfig(demoProjectId),
     FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097",
-    FIRESTORE_EMULATOR_HOST: "127.0.0.1:8081",
+    FIRESTORE_EMULATOR_HOST: "127.0.0.1:8082",
     X_API_MOCK_MODE: envFlag("X_API_MOCK_MODE", "true"),
     OPENAI_MOCK_MODE: envFlag("OPENAI_MOCK_MODE", "true"),
     VITE_OPENAI_MOCK_MODE: envFlag("VITE_OPENAI_MOCK_MODE", envFlag("OPENAI_MOCK_MODE", "true")),
@@ -112,7 +112,7 @@ function buildEmulatorEnv(rootEnv = loadRootEnv()) {
     VITE_FIREBASE_PROJECT_ID: demoProjectId,
     VITE_FIREBASE_AUTH_EMULATOR_URL: "http://127.0.0.1:9097",
     VITE_FIRESTORE_EMULATOR_HOST: "127.0.0.1",
-    VITE_FIRESTORE_EMULATOR_PORT: "8081",
+    VITE_FIRESTORE_EMULATOR_PORT: "8082",
     VITE_FUNCTIONS_EMULATOR_HOST: "127.0.0.1",
     VITE_FUNCTIONS_EMULATOR_PORT: "5003",
     APP_BASE_URL: envValue("APP_BASE_URL", "http://localhost:5174"),

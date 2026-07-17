@@ -30,7 +30,7 @@
     "test:phase38:origin": "node scripts/testPhase38OriginFilters.js",
     "test:phase4": "node scripts/testPhase4Display.js && cd functions && npm run test:phase4",
     "test:phase4:e2e": "FIREBASE_PROJECT_ID=demo-x-reply-intelligence GCLOUD_PROJECT=demo-x-reply-intelligence OPENAI_MOCK_MODE=true X_API_MOCK_MODE=true node scripts/firebaseLocalExec.cjs emulators:exec --only firestore \"cd functions && npm run emulator:phase4:e2e\"",
-    "test:phase4:e2e:direct": "FIREBASE_PROJECT_ID=demo-x-reply-intelligence GCLOUD_PROJECT=demo-x-reply-intelligence GOOGLE_CLOUD_PROJECT=demo-x-reply-intelligence FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9097 OPENAI_MOCK_MODE=true X_API_MOCK_MODE=true node functions/scripts/emulatorPhase4E2E.js",
+    "test:phase4:e2e:direct": "FIREBASE_PROJECT_ID=demo-x-reply-intelligence GCLOUD_PROJECT=demo-x-reply-intelligence GOOGLE_CLOUD_PROJECT=demo-x-reply-intelligence FIRESTORE_EMULATOR_HOST=127.0.0.1:8082 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9097 OPENAI_MOCK_MODE=true X_API_MOCK_MODE=true node functions/scripts/emulatorPhase4E2E.js",
     "test:phase41:safety": "node scripts/testPhase41Client.js && node scripts/testPhase41Safety.cjs",
     "preflight:local": "node scripts/preflight.cjs local",
     "preflight:staging": "node scripts/preflight.cjs staging",

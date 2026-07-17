@@ -16,7 +16,7 @@ const steps = [
       FIREBASE_PROJECT_ID: "demo-x-reply-intelligence",
       GCLOUD_PROJECT: "demo-x-reply-intelligence",
       GOOGLE_CLOUD_PROJECT: "demo-x-reply-intelligence",
-      FIRESTORE_EMULATOR_HOST: "127.0.0.1:8081",
+      FIRESTORE_EMULATOR_HOST: "127.0.0.1:8082",
       FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9097",
       OPENAI_MOCK_MODE: "true",
       X_API_MOCK_MODE: "true",
@@ -32,7 +32,7 @@ const steps = [
       FIREBASE_PROJECT_ID: "demo-x-reply-intelligence",
       GCLOUD_PROJECT: "demo-x-reply-intelligence",
       GOOGLE_CLOUD_PROJECT: "demo-x-reply-intelligence",
-      FIRESTORE_EMULATOR_HOST: "127.0.0.1:8081",
+      FIRESTORE_EMULATOR_HOST: "127.0.0.1:8082",
       OPENAI_MOCK_MODE: "true",
       X_API_MOCK_MODE: "true",
     },
@@ -44,9 +44,9 @@ const steps = [
     env: {
       APP_ENV: "production",
       FUNCTIONS_ENV: "production",
-      FIREBASE_PROJECT_ID: "x-reply-intelligence",
-      GCLOUD_PROJECT: "x-reply-intelligence",
-      GOOGLE_CLOUD_PROJECT: "x-reply-intelligence",
+      FIREBASE_PROJECT_ID: "x-ai-322c9",
+      GCLOUD_PROJECT: "x-ai-322c9",
+      GOOGLE_CLOUD_PROJECT: "x-ai-322c9",
       OPENAI_MOCK_MODE: "false",
       X_API_MOCK_MODE: "true",
     },
@@ -84,7 +84,7 @@ function isPortOpen(port) {
 }
 
 async function main() {
-  const firestoreOpen = await isPortOpen(8081);
+  const firestoreOpen = await isPortOpen(8082);
   for (const step of steps) {
     if (step.label === "phase4:e2e" && firestoreOpen) {
       runStep(step.label, "npm", ["run", "test:phase4:e2e:direct"], step.env);
