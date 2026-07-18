@@ -62,6 +62,25 @@ const versionLabels = {
   evaluationSchemaVersion: "評価形式版",
 };
 
+const exclusionReasonLabels = {
+  below_minimum_impressions: "最低インプレッション未満",
+  self_post: "自分の投稿",
+  giveaway_or_follow_campaign: "フォロー・リポスト系のキャンペーン",
+  protected_author: "鍵アカウント",
+  too_old: "古い投稿",
+  too_short: "本文が短い",
+  unsupported_language: "対応外の言語",
+  sensitive: "センシティブ",
+  blocked_author: "ブロック対象",
+  empty_text: "本文なし",
+  url_only: "URLのみ",
+  invalid_post_id: "投稿ID不正",
+  invalid_created_at: "投稿日時不正",
+  already_processed: "処理済み",
+  investment_spam: "投資スパム",
+  adult_content: "成人向け",
+};
+
 const scoreLabels = {
   sourceUnderstanding: "元投稿の理解",
   addedValue: "一段深い価値",
@@ -112,10 +131,15 @@ function formatVersionLabel(key) {
   return formatLabel(versionLabels, key, "技術情報");
 }
 
+function formatExclusionReasonLabel(value) {
+  return formatLabel(exclusionReasonLabels, value, "未分類");
+}
+
 export {
   candidateLabels,
   candidateSourceTypeLabels,
   categoryLabels,
+  exclusionReasonLabels,
   decisionLabels,
   originLabels,
   scoreLabels,
@@ -125,6 +149,7 @@ export {
   formatCandidateSourceTypeLabel,
   formatCategoryLabel,
   formatDecisionLabel,
+  formatExclusionReasonLabel,
   formatOriginLabel,
   formatSourceTypeLabel,
   formatVersionLabel,

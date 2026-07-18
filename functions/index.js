@@ -21,6 +21,7 @@ const {
 } = require("./src/x/xApiClient");
 const { mockConnection } = require("./src/x/mockFixtures");
 const { syncTimeline } = require("./src/x/syncTimeline");
+const { defaultRuleSet, loadHardFilterRuleSet, saveHardFilterRuleSet, passesMinimumImpressions } = require("./src/x/hardFilter");
 const { safeMessage } = require("./src/x/errors");
 const { requireAdmin } = require("./src/auth/requireAdmin");
 const { deprecatedAiCallable } = require("./src/phase3/deprecatedCallables");
@@ -59,6 +60,10 @@ const SaveWatchListSchema = z.object({
   listId: z.string().regex(/^\d+$/),
   name: z.string().min(1).max(80),
   enabled: z.boolean(),
+});
+
+const SaveHardFilterRuleSetSchema = z.object({
+  minimumImpressions: z.number().int().min(0),
 });
 
 exports.seedIdentityDefaults = onCall({ region: "asia-northeast1" }, async (request) => {
@@ -254,8 +259,24 @@ exports.saveWatchListSetting = onCall({ region: "asia-northeast1" }, async (requ
   return { ok: true };
 });
 
+exports.getHardFilterRuleSet = onCall({ region: "asia-northeast1" }, async (request) => {
+  requireAdmin(request);
+  return loadHardFilterRuleSet(db);
+});
+
+exports.saveHardFilterRuleSet = onCall({ region: "asia-northeast1" }, async (request) => {
+  requireAdmin(request);
+  const parsed = SaveHardFilterRuleSetSchema.safeParse(request.data || {});
+  if (!parsed.success) throw new HttpsError("invalid-argument", "最低インプレッション数を確認してください。");
+  return saveHardFilterRuleSet(db, {
+    ...defaultRuleSet,
+    minimumImpressions: parsed.data.minimumImpressions,
+  });
+});
+
 exports.listCandidatePosts = onCall({ region: "asia-northeast1" }, async (request) => {
   requireAdmin(request);
+  const ruleSet = await loadHardFilterRuleSet(db);
   const passed = await db.collection("candidatePosts")
     .where("status", "in", ["candidate", "opened"])
     .orderBy("createdAt", "desc")
@@ -271,6 +292,7 @@ exports.listCandidatePosts = onCall({ region: "asia-northeast1" }, async (reques
       .map(toClientPost)
       .filter((post) => post.hardFilter?.passed === true)
       .filter((post) => !post.expiresAt || new Date(post.expiresAt).getTime() > Date.now())
+      .filter((post) => passesMinimumImpressions(post, ruleSet.minimumImpressions))
       .slice(0, 50),
     excluded: excluded.docs.map(toClientPost),
   };

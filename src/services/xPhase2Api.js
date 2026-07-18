@@ -14,6 +14,18 @@ const mockConnection = {
   lastErrorCode: null,
 };
 
+const mockHardFilterRuleSet = {
+  filterRuleSetId: "x-hard-filter-v1",
+  minimumTextLength: 20,
+  maxAgeHours: 6,
+  minimumImpressions: 10000,
+  allowedLanguages: ["ja"],
+  excludeSensitive: true,
+  excludedKeywords: ["フォロー&リポスト", "フォロー＆リポスト", "プレゼント企画", "フォロバ", "仮想通貨", "爆益", "成人向け"],
+  blockedAuthorIds: [],
+  version: 1,
+};
+
 const mockCandidates = [
   {
     postId: "1810000000000000001",
@@ -22,7 +34,7 @@ const mockCandidates = [
     authorUsername: "ai_ops_note",
     text: "AIツールは導入した直後より、社内で誰が更新するか決めていない時に止まりがち。ここを設計している会社は強い。",
     createdAt: new Date(Date.now() - 42 * 60 * 1000).toISOString(),
-    metrics: { likes: 68, replies: 9, reposts: 14, quotes: 3 },
+    metrics: { likes: 68, replies: 9, reposts: 14, quotes: 3, impressions: 12000 },
     authorMetrics: { followers: 18400 },
     sourceTypes: ["home_timeline"],
     hardFilter: { passed: true, exclusionReasons: [] },
@@ -36,7 +48,7 @@ const mockCandidates = [
     authorUsername: "web_ai_flow",
     text: "Web制作者はAIで仕事がなくなるというより、AIを業務フローに組み込む力が差になりそう。",
     createdAt: new Date(Date.now() - 96 * 60 * 1000).toISOString(),
-    metrics: { likes: 41, replies: 5, reposts: 8, quotes: 1 },
+    metrics: { likes: 41, replies: 5, reposts: 8, quotes: 1, impressions: 10000 },
     authorMetrics: { followers: 6200 },
     sourceTypes: ["watch_list"],
     hardFilter: { passed: true, exclusionReasons: [] },
@@ -53,10 +65,10 @@ const mockExcluded = [
     authorUsername: "present_now",
     text: "フォロー&リポストでAmazonギフト券プレゼント！",
     createdAt: new Date(Date.now() - 28 * 60 * 1000).toISOString(),
-    metrics: { likes: 220, replies: 80, reposts: 140, quotes: 4 },
+    metrics: { likes: 220, replies: 80, reposts: 140, quotes: 4, impressions: 8900 },
     authorMetrics: { followers: 2200 },
     sourceTypes: ["home_timeline"],
-    hardFilter: { passed: false, exclusionReasons: ["giveaway_or_follow_campaign"] },
+    hardFilter: { passed: false, exclusionReasons: ["below_minimum_impressions", "giveaway_or_follow_campaign"] },
     status: "filtered_out",
   },
 ];
@@ -120,8 +132,29 @@ export async function saveWatchListSetting(setting) {
   return callFunction("saveWatchListSetting", setting);
 }
 
+export async function getHardFilterRuleSet() {
+  if (!firebaseEnabled) return mockHardFilterRuleSet;
+  return callFunction("getHardFilterRuleSet");
+}
+
+export async function saveHardFilterRuleSet(setting) {
+  if (!firebaseEnabled) {
+    if (typeof setting?.minimumImpressions === "number") {
+      mockHardFilterRuleSet.minimumImpressions = setting.minimumImpressions;
+    }
+    return { ok: true, ...mockHardFilterRuleSet };
+  }
+  return callFunction("saveHardFilterRuleSet", setting);
+}
+
 export async function listCandidatePosts() {
-  if (!firebaseEnabled) return { candidates: mockCandidates, excluded: mockExcluded };
+  if (!firebaseEnabled) {
+    const minimumImpressions = Number(mockHardFilterRuleSet.minimumImpressions || 0);
+    return {
+      candidates: mockCandidates.filter((post) => passesMinimumImpressions(post, minimumImpressions)),
+      excluded: mockExcluded,
+    };
+  }
   return callFunction("listCandidatePosts");
 }
 
@@ -145,4 +178,10 @@ export async function getSyncOverview() {
     };
   }
   return callFunction("getSyncOverview");
+}
+
+function passesMinimumImpressions(post, minimumImpressions) {
+  if (!minimumImpressions) return true;
+  const impressions = Number.isFinite(Number(post.metrics?.impressions)) ? Number(post.metrics.impressions) : null;
+  return impressions != null && impressions >= minimumImpressions;
 }

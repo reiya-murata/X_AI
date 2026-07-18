@@ -30,13 +30,38 @@ function run() {
   assert.equal(normalized.length, 6);
   assert.equal(normalized[0].postId, "1810000000000000001");
   assert.equal(normalized[0].authorUsername, "ai_ops_note");
+  assert.equal(normalized[0].metrics.impressions, 12000);
+  assert.equal(normalized[1].metrics.impressions, 10000);
+  assert.equal(normalized[3].metrics.impressions, 9999);
+  assert.equal(normalized[4].metrics.impressions, null);
 
   const passed = applyHardFilter({
     post: normalized[0],
     ownXUserId: "1000000000000000000",
-    ruleSet: defaultRuleSet,
+    ruleSet: { ...defaultRuleSet, minimumImpressions: 10000 },
   });
   assert.equal(passed.passed, true);
+
+  const stringImpressions = applyHardFilter({
+    post: { ...normalized[0], metrics: { ...normalized[0].metrics, impressions: "10000" } },
+    ownXUserId: "1000000000000000000",
+    ruleSet: { ...defaultRuleSet, minimumImpressions: "10000" },
+  });
+  assert.equal(stringImpressions.passed, true);
+
+  const belowMinimumImpressions = applyHardFilter({
+    post: normalized[3],
+    ownXUserId: "1000000000000000000",
+    ruleSet: { ...defaultRuleSet, minimumImpressions: 10000 },
+  });
+  assert.ok(belowMinimumImpressions.exclusionReasons.includes("below_minimum_impressions"));
+
+  const missingImpressions = applyHardFilter({
+    post: normalized[4],
+    ownXUserId: "1000000000000000000",
+    ruleSet: { ...defaultRuleSet, minimumImpressions: 10000 },
+  });
+  assert.ok(missingImpressions.exclusionReasons.includes("below_minimum_impressions"));
 
   const selfPost = applyHardFilter({
     post: normalized[2],

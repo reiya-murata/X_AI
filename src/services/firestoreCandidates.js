@@ -8,7 +8,7 @@ import {
 } from "firebase/firestore";
 import { db, firebaseEnabled } from "../lib/firebase";
 
-export function subscribeCandidatePosts({ onNext, onError }) {
+export function subscribeCandidatePosts({ onNext, onError, minimumImpressions = 0 }) {
   if (!firebaseEnabled || !db) return () => {};
   const candidatesQuery = query(collection(db, "candidatePosts"), orderBy("createdAt", "desc"), limit(120));
   return onSnapshot(
@@ -20,6 +20,7 @@ export function subscribeCandidatePosts({ onNext, onError }) {
         .filter(Boolean)
         .filter((post) => post.hardFilter?.passed === true)
         .filter((post) => post.status !== "filtered_out")
+        .filter((post) => passesMinimumImpressions(post, minimumImpressions))
         .filter((post) => !post.expiresAt || new Date(post.expiresAt).getTime() > now || ["sent_manual", "not_sent", "dismissed", "archived"].includes(post.workflowStatus))
         .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
         .slice(0, 50);
@@ -92,6 +93,12 @@ function normalizeCandidateDoc(doc) {
     firstDiscoveredAt: toIso(data.firstDiscoveredAt),
     lastDiscoveredAt: toIso(data.lastDiscoveredAt),
   };
+}
+
+function passesMinimumImpressions(post, minimumImpressions) {
+  if (!minimumImpressions || Number(minimumImpressions) <= 0) return true;
+  const impressions = Number.isFinite(Number(post.metrics?.impressions)) ? Number(post.metrics.impressions) : null;
+  return impressions != null && impressions >= Number(minimumImpressions);
 }
 
 function toIso(value) {

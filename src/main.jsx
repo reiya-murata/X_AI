@@ -35,11 +35,13 @@ import {
 import {
   beginXOAuth,
   disconnectX,
+  getHardFilterRuleSet,
   fetchHomeTimelineNow,
   fetchWatchListTimelineNow,
   getSyncOverview,
   getXConnectionStatus,
   listCandidatePosts,
+  saveHardFilterRuleSet,
   saveWatchListSetting,
 } from "./services/xPhase2Api";
 import { clientEnvironment, environmentSafety, forceLocalAdminSession, getLocalAdminCredentials, hasLocalAdminBootstrapAttempted, loginWithEmail, logout, markLocalAdminBootstrapAttempted, runtimeInfo, shouldUseLocalQualityMode, watchAuth, firebaseEnabled } from "./lib/firebase";
@@ -53,6 +55,7 @@ import {
   formatCandidateSourceTypeLabel,
   formatCategoryLabel,
   formatDecisionLabel,
+  formatExclusionReasonLabel,
   formatOriginLabel,
   formatSourceTypeLabel,
   formatVersionLabel,
@@ -68,6 +71,14 @@ const baseTabs = [
   { id: "readiness", label: "本番準備", icon: ShieldCheck },
 ];
 
+const minimumImpressionOptions = [
+  { value: 0, label: "制限なし" },
+  { value: 1000, label: "1,000以上" },
+  { value: 5000, label: "5,000以上" },
+  { value: 10000, label: "10,000以上" },
+  { value: 50000, label: "50,000以上" },
+];
+
 function getGenerationButtonLabel() {
   return runtimeInfo.openAi === "Real" ? "実AIで生成" : "モック生成";
 }
@@ -80,6 +91,17 @@ function formatRelativeCooldown(cooldownUntil) {
   if (diff <= 0) return "取得可能";
   const minutes = Math.ceil(diff / 60000);
   return `${minutes}分後`;
+}
+
+function formatImpressions(impressions) {
+  if (!Number.isFinite(Number(impressions))) return "表示回数: 未取得";
+  return `表示回数: ${Number(impressions).toLocaleString()}`;
+}
+
+function formatMinimumImpressionsLabel(value) {
+  const numeric = Number(value || 0);
+  if (!numeric) return "制限なし";
+  return `${numeric.toLocaleString()}以上`;
 }
 
 function sumRecentUsage(runs = []) {
@@ -118,6 +140,7 @@ function App() {
   const localAuthPhaseRef = useRef("idle");
   const [connection, setConnection] = useState(null);
   const [syncOverview, setSyncOverview] = useState(null);
+  const [hardFilterRuleSet, setHardFilterRuleSet] = useState(null);
   const [candidates, setCandidates] = useState([]);
   const [excluded, setExcluded] = useState([]);
   const [listId, setListId] = useState("1234567890123456789");
@@ -243,6 +266,7 @@ function App() {
     const unsubscribeCandidates = subscribeCandidatePosts({
       onNext: setCandidates,
       onError: (error) => notify(error.message || "候補の購読に失敗しました"),
+      minimumImpressions: hardFilterRuleSet?.minimumImpressions ?? 10000,
     });
     const unsubscribeExcluded = subscribeExcludedPosts({
       onNext: setExcluded,
@@ -258,7 +282,7 @@ function App() {
       unsubscribeEvaluations();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authState.user, authState.admin]);
+  }, [authState.user, authState.admin, hardFilterRuleSet?.minimumImpressions]);
 
   const stats = useMemo(() => {
     const sourceCount = new Set(candidates.flatMap((item) => item.sourceTypes || [])).size;
@@ -289,13 +313,15 @@ function App() {
   async function refreshAll() {
     setLoading(true);
     try {
-      const [status, overview, posts] = await Promise.all([
+      const [status, overview, posts, filterRuleSet] = await Promise.all([
         getXConnectionStatus(),
         getSyncOverview(),
         listCandidatePosts(),
+        getHardFilterRuleSet(),
       ]);
       setConnection(status);
       setSyncOverview(overview);
+      setHardFilterRuleSet(filterRuleSet || null);
       setCandidates(posts.candidates || []);
       setExcluded(posts.excluded || []);
     } catch (error) {
@@ -308,12 +334,14 @@ function App() {
   async function refreshMeta() {
     setLoading(true);
     try {
-      const [status, overview] = await Promise.all([
+      const [status, overview, filterRuleSet] = await Promise.all([
         getXConnectionStatus(),
         getSyncOverview(),
+        getHardFilterRuleSet(),
       ]);
       setConnection(status);
       setSyncOverview(overview);
+      setHardFilterRuleSet(filterRuleSet || null);
     } catch (error) {
       notify(error.message || "接続状態の読み込みに失敗しました");
     } finally {
@@ -394,6 +422,21 @@ function App() {
       await refreshAll();
     } catch (error) {
       notify(formatOperationalError(error, "監視リスト取得に失敗しました。X接続とリストIDを確認してください。"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSaveMinimumImpressions(nextValue) {
+    const minimumImpressions = Number(nextValue);
+    setLoading(true);
+    try {
+      const updated = await saveHardFilterRuleSet({ minimumImpressions });
+      setHardFilterRuleSet(updated || { minimumImpressions });
+      notify(`最低インプレッションを${formatMinimumImpressionsLabel(minimumImpressions)}にしました`);
+      await refreshAll();
+    } catch (error) {
+      notify(formatOperationalError(error, "最低インプレッション設定の保存に失敗しました。"));
     } finally {
       setLoading(false);
     }
@@ -593,6 +636,7 @@ function App() {
             <ConnectionPanel
               connection={connection}
               syncOverview={syncOverview}
+              hardFilterRuleSet={hardFilterRuleSet}
               listId={listId}
               setListId={setListId}
               listName={listName}
@@ -603,6 +647,7 @@ function App() {
               onFetchHome={handleFetchHome}
               onFetchList={handleFetchList}
               onRefresh={firebaseEnabled ? refreshMeta : refreshAll}
+              onSaveMinimumImpressions={handleSaveMinimumImpressions}
             />
 
             {activeTab === "dashboard" && (
@@ -757,7 +802,7 @@ function UserBar({ user, admin, onLogout }) {
 }
 
 function ConnectionPanel(props) {
-  const { connection, syncOverview, listId, setListId, listName, setListName, loading, onConnect, onDisconnect, onFetchHome, onFetchList, onRefresh } = props;
+  const { connection, syncOverview, hardFilterRuleSet, listId, setListId, listName, setListName, loading, onConnect, onDisconnect, onFetchHome, onFetchList, onRefresh, onSaveMinimumImpressions } = props;
   const homeState = syncOverview?.states?.find((item) => item.sourceType === "home_timeline") || syncOverview?.states?.[0];
   const listState = syncOverview?.states?.find((item) => item.sourceType === "watch_list" && String(item.listId || "") === String(listId || ""));
   const recentUsage = sumRecentUsage(syncOverview?.runs || []);
@@ -770,6 +815,7 @@ function ConnectionPanel(props) {
   const cooldownActive = Boolean(cooldownUntil && new Date(cooldownUntil).getTime() > Date.now());
   const listCooldownActive = Boolean(listCooldownUntil && new Date(listCooldownUntil).getTime() > Date.now());
   const syncLabel = homeState?.lastSyncMode === "incremental" ? "通常差分同期" : "初回同期";
+  const currentMinimumImpressions = Number(hardFilterRuleSet?.minimumImpressions || 0);
   const homeButtonLabel = !connection?.connected
     ? "Xと接続してください"
     : !hasRequiredScopes
@@ -833,9 +879,22 @@ function ConnectionPanel(props) {
           <p>今回API {homeState?.lastApiCallCount ?? 0}回 / 今回取得 {homeState?.lastResultCount ?? 0}件 / 新規保存 {homeState?.lastSavedCount ?? 0}件</p>
           <p>重複 {homeState?.lastDuplicateCount ?? 0}件 / 除外 {homeState?.lastExcludedCount ?? 0}件 / since_id {homeState?.sinceIdUsed ? "あり" : "なし"}</p>
           <p>取得モード: {syncLabel} / 次回取得: {cooldownUntil ? `${formatDate(cooldownUntil)} (${formatRelativeCooldown(cooldownUntil)})` : "いつでも"}</p>
+          <p>最低インプレッション: {formatMinimumImpressionsLabel(currentMinimumImpressions)}</p>
           <p>直近24時間: API {recentUsage.apiCalls}回 / 取得 {recentUsage.fetched}件</p>
           <p>since_id: {homeState?.latestSinceId || "未保存"}</p>
         </div>
+        <label className="field-label" htmlFor="minimum-impressions">最低インプレッション</label>
+        <select
+          id="minimum-impressions"
+          value={currentMinimumImpressions}
+          onChange={(event) => onSaveMinimumImpressions(Number(event.target.value))}
+          disabled={loading}
+          aria-label="最低インプレッション"
+        >
+          {minimumImpressionOptions.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
         <button type="button" className="primary-action wide" onClick={onFetchHome} disabled={homeButtonDisabled}>
           <RefreshCw size={17} />
           {homeButtonLabel}
@@ -975,7 +1034,7 @@ function CandidateCard({ candidate, notify, setTestPost, setActiveTab, onAiActio
       <div className="compact-candidate-body">
         <div className="compact-candidate-head"><strong>{candidate.authorName}</strong><span>@{candidate.authorUsername}</span>{selected && <span className="selected-label">選択中</span>}</div>
         <p>{candidate.text}</p>
-        <div className="topic-row"><span className="workflow-status">{shouldReply ? formatWorkflowStatus(candidate, aiState) : "返信対象外"}</span><span>{(candidate.sourceTypes || []).map(formatCandidateSourceTypeLabel).join(" / ") || "未分類"}</span><span>優先度 {candidate.rank || Math.round(candidate.scores?.total || 0) || "-"}</span></div>
+        <div className="topic-row"><span className="workflow-status">{shouldReply ? formatWorkflowStatus(candidate, aiState) : "返信対象外"}</span><span>{(candidate.sourceTypes || []).map(formatCandidateSourceTypeLabel).join(" / ") || "未分類"}</span><span>{formatImpressions(candidate.metrics?.impressions)}</span><span>優先度 {candidate.rank || Math.round(candidate.scores?.total || 0) || "-"}</span></div>
         {!shouldReply && <p className="workflow-note">{getReplyTargetReason(candidate, aiState)}</p>}
       </div>
       <button type="button" className={selected ? "primary-action" : "quiet-action"} onClick={onSelect}>{selected ? "表示中" : "開く"}</button>
@@ -1022,6 +1081,7 @@ function CandidateCard({ candidate, notify, setTestPost, setActiveTab, onAiActio
         <span>リプ {candidate.metrics?.replies ?? 0}</span>
         <span>リポスト {candidate.metrics?.reposts ?? 0}</span>
         <span>引用 {candidate.metrics?.quotes ?? 0}</span>
+        <span>{formatImpressions(candidate.metrics?.impressions)}</span>
       </div>
       {candidate.media?.length > 0 && (
         <div className="media-strip">
@@ -1151,7 +1211,11 @@ function ExcludedPanel({ posts }) {
           </div>
           <p className="post-text">{post.text}</p>
           <div className="topic-row">
-            {(post.hardFilter?.exclusionReasons || []).map((reason) => <span key={reason}>{reason}</span>)}
+            {(post.hardFilter?.exclusionReasons || []).map((reason) => <span key={reason}>{formatExclusionReasonLabel(reason)}</span>)}
+          </div>
+          <div className="metric-row">
+            <span>{formatElapsed(post.createdAt)}</span>
+            <span>{formatImpressions(post.metrics?.impressions)}</span>
           </div>
         </article>
       ))}

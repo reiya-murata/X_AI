@@ -58,6 +58,7 @@ function numberOrZero(value) {
 }
 
 function nullableNumber(value) {
+  if (value == null || value === "") return null;
   return Number.isFinite(Number(value)) ? Number(value) : null;
 }
 

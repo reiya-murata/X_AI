@@ -27,16 +27,16 @@ function mockTimelinePage(sourceType, page = 1) {
 
   const posts = page === 1
     ? [
-      tweet("1810000000000000001", baseUsers[0].id, fresh, "AIツールは導入した直後より、社内で誰が更新するか決めていない時に止まりがち。ここを設計している会社は強い。", 68, 9, 14, 3),
-      tweet("1810000000000000002", baseUsers[1].id, fresh, "Web制作者はAIで仕事がなくなるというより、AIを業務フローに組み込む力が差になりそう。", 41, 5, 8, 1),
-      tweet("1810000000000000003", baseUsers[2].id, fresh, "自分の投稿は除外される確認用です。", 1, 0, 0, 0),
-      tweet("1810000000000000004", baseUsers[3].id, fresh, "フォロー&リポストでAmazonギフト券プレゼント！", 220, 80, 140, 4),
-      tweet("1810000000000000005", baseUsers[4].id, fresh, "鍵アカウントの投稿は除外される確認用です。", 1, 0, 0, 0),
-      tweet("1810000000000000006", baseUsers[0].id, old, "古い投稿は6時間超で除外される確認用です。", 3, 0, 0, 0),
+      tweet("1810000000000000001", baseUsers[0].id, fresh, "AIツールは導入した直後より、社内で誰が更新するか決めていない時に止まりがち。ここを設計している会社は強い。", 68, 9, 14, 3, 12000),
+      tweet("1810000000000000002", baseUsers[1].id, fresh, "Web制作者はAIで仕事がなくなるというより、AIを業務フローに組み込む力が差になりそう。", 41, 5, 8, 1, 10000),
+      tweet("1810000000000000003", baseUsers[2].id, fresh, "自分の投稿は除外される確認用です。", 1, 0, 0, 0, 15000),
+      tweet("1810000000000000004", baseUsers[3].id, fresh, "フォロー&リポストでAmazonギフト券プレゼント！", 220, 80, 140, 4, 9999),
+      tweet("1810000000000000005", baseUsers[4].id, fresh, "鍵アカウントの投稿は除外される確認用です。", 1, 0, 0, 0, null),
+      tweet("1810000000000000006", baseUsers[0].id, old, "古い投稿は6時間超で除外される確認用です。", 3, 0, 0, 0, 13000),
     ]
     : [
-      tweet("1810000000000000002", baseUsers[1].id, fresh, "Web制作者はAIで仕事がなくなるというより、AIを業務フローに組み込む力が差になりそう。", 44, 6, 8, 1),
-      tweet("1810000000000000007", baseUsers[0].id, fresh, "短文", 2, 0, 0, 0),
+      tweet("1810000000000000002", baseUsers[1].id, fresh, "Web制作者はAIで仕事がなくなるというより、AIを業務フローに組み込む力が差になりそう。", 44, 6, 8, 1, 10500),
+      tweet("1810000000000000007", baseUsers[0].id, fresh, "短文", 2, 0, 0, 0, 8000),
     ];
 
   return {
@@ -68,7 +68,7 @@ function user(id, name, username, followers, isProtected = false) {
   };
 }
 
-function tweet(id, authorId, createdAt, text, likes, replies, reposts, quotes) {
+function tweet(id, authorId, createdAt, text, likes, replies, reposts, quotes, impressions = null) {
   return {
     id,
     author_id: authorId,
@@ -84,7 +84,7 @@ function tweet(id, authorId, createdAt, text, likes, replies, reposts, quotes) {
       retweet_count: reposts,
       quote_count: quotes,
       bookmark_count: 0,
-      impression_count: null,
+      impression_count: impressions,
     },
   };
 }

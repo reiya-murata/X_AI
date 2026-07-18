@@ -23,14 +23,15 @@ async function main() {
     accessToken: "mock-access-token",
   });
   assert.equal(firstHome.success, true);
-  assert.equal(firstHome.fetchedCount, 8);
-  assert.equal(firstHome.savedCount, 3);
-  assert.equal(firstHome.excludedCount, 5);
+  assert.equal(firstHome.fetchedCount, 6);
+  assert.equal(firstHome.savedCount, 2);
+  assert.equal(firstHome.excludedCount, 4);
 
   const firstDoc = await db.collection("candidatePosts").doc("1810000000000000001").get();
   assert.equal(firstDoc.exists, true);
   assert.equal(firstDoc.data().status, "candidate");
   assert.deepEqual(firstDoc.data().sourceTypes, ["home_timeline"]);
+  assert.equal(firstDoc.data().metrics.impressions, 12000);
   const firstDiscoveredAt = firstDoc.data().firstDiscoveredAt.toMillis();
 
   await db.collection("candidatePosts").doc("1810000000000000001").set({ status: "opened" }, { merge: true });

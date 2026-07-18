@@ -166,6 +166,7 @@ function buildSeedDocuments() {
         filterRuleSetId: "x-hard-filter-v1",
         minimumTextLength: 20,
         maxAgeHours: 6,
+        minimumImpressions: 10000,
         allowedLanguages: ["ja"],
         excludeSensitive: true,
         excludedKeywords: ["フォロー&リポスト", "フォロー＆リポスト", "プレゼント企画", "フォロバ", "仮想通貨", "爆益", "成人向け"],
@@ -237,7 +238,7 @@ function buildPhase4WorkflowDocuments() {
       collection: "candidatePosts", id: postId, data: {
         postId, postUrl: `https://x.com/phase4_sample_${number}/status/${postId}`, authorId: `phase4-author-${suffix}`,
         authorUsername: `phase4_sample_${suffix}`, authorName: `架空の運用担当 ${suffix}`, text, language: "ja",
-        metrics: { likes: 10 + stateIndex, replies: number, reposts: 2, quotes: 0 }, authorMetrics: { followers: 300 + stateIndex * 100 },
+        metrics: { likes: 10 + stateIndex, replies: number, reposts: 2, quotes: 0, impressions: 12000 + stateIndex * 700 + number * 250 }, authorMetrics: { followers: 300 + stateIndex * 100 },
         sourceTypes: number === 1 ? ["home_timeline"] : ["watch_list"], hardFilter: { passed: true, exclusionReasons: [] }, status: "candidate",
         workflowVersion: 1, workflowStatus, statusHistory: [], latestReplyDraftId: workflowStatus === "discovered" || workflowStatus === "generation_failed" ? null : replyDraftId,
         recommendedCandidateKey: "A", recommendedReplyText: reply, finalReplyText: ["edited", "intent_opened", "sent_manual"].includes(workflowStatus) ? `${reply} 人の確認も大切です。` : "",
