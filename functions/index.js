@@ -34,6 +34,7 @@ const { normalizeHumanQualityEvaluation } = require("./src/phase3/humanEvaluatio
 const { saveHumanEvaluation, cleanupExpiredEvaluationFingerprints } = require("./src/phase3/humanEvaluationStore");
 const { evaluateServerEnvironment } = require("./src/environmentSafety");
 const { secretBindings, withSecrets } = require("./src/secrets");
+const { getScheduledReplyOpportunityConfig, saveScheduledReplyOpportunityConfig, runScheduledReplyOpportunity } = require("./src/scheduledReplyOpportunity");
 const {
   transitionCandidate,
   saveWorkflowDraft,
@@ -322,6 +323,32 @@ exports.getSyncOverview = onCall({ region: "asia-northeast1" }, async (request) 
   };
 });
 
+exports.getScheduledReplyOpportunityOverview = onCall({ region: "asia-northeast1" }, async (request) => {
+  requireAdmin(request);
+  const config = await getScheduledReplyOpportunityConfig(db);
+  const stateSnap = await db.collection("scheduledReplyOpportunityState").doc("global").get();
+  const opportunities = await db.collection("scheduledReplyOpportunities")
+    .orderBy("createdAt", "desc")
+    .limit(10)
+    .get()
+    .catch(() => ({ docs: [] }));
+  return {
+    config,
+    state: stateSnap.exists ? serializeTimestamps({ id: stateSnap.id, ...stateSnap.data() }) : null,
+    opportunities: opportunities.docs.map((doc) => serializeTimestamps({ id: doc.id, ...doc.data() })),
+  };
+});
+
+exports.saveScheduledReplyOpportunitySetting = onCall({ region: "asia-northeast1" }, async (request) => {
+  requireAdmin(request);
+  return saveScheduledReplyOpportunityConfig(db, request.data || {});
+});
+
+exports.runScheduledReplyOpportunityNow = onCall({ region: "asia-northeast1" }, async (request) => {
+  requireAdmin(request);
+  return runScheduledReplyOpportunity({ db, admin, force: true });
+});
+
 exports.fetchHomeTimelineNow = onCall(withSecrets(...secretBindings.xApi), async (request) => {
   const adminUser = requireAdmin(request);
   console.log("fetchHomeTimelineNow:start", { uid: adminUser.uid, xApiMockMode: isMockMode() });
@@ -370,6 +397,11 @@ exports.fetchWatchListTimelineNow = onCall(withSecrets(...secretBindings.xApi), 
     throw new HttpsError("failed-precondition", safeMessage(error.code), { code: error.code || "UNKNOWN_ERROR" });
   }
 });
+
+exports.scheduledReplyOpportunity = onSchedule(
+  { schedule: "0 6-23 * * *", timeZone: "Asia/Tokyo", region: "asia-northeast1" },
+  async () => runScheduledReplyOpportunity({ db, admin }),
+);
 
 exports.scheduledDiscoverCandidates = onSchedule(
   { schedule: "every 30 minutes", timeZone: "Asia/Tokyo", region: "asia-northeast1" },

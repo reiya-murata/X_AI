@@ -26,6 +26,7 @@ import { humanEvaluationTags, qualityFixtures } from "./qualityFixtureData";
 import { generateLocalReplyTest } from "./services/replyGenerator";
 import { openXReply } from "./services/xIntent";
 import { subscribeQualityEvaluations } from "./services/qualityEvaluations";
+import { getScheduledReplyOpportunityOverview, saveScheduledReplyOpportunitySetting, runScheduledReplyOpportunityNow } from "./services/scheduledReplyOpportunity";
 import {
   processCandidateBatchWithAi,
   processCandidateWithAi,
@@ -68,6 +69,7 @@ const baseTabs = [
   { id: "test", label: "生成テスト", icon: Sparkles },
   { id: "identity", label: "発信プロフィール", icon: Settings },
   { id: "analysis", label: "分析", icon: BarChart3 },
+  { id: "scheduled", label: "Scheduled", icon: RefreshCw },
   { id: "readiness", label: "本番準備", icon: ShieldCheck },
 ];
 
@@ -155,6 +157,7 @@ function App() {
   const localAuthPhaseRef = useRef("idle");
   const [connection, setConnection] = useState(null);
   const [syncOverview, setSyncOverview] = useState(null);
+  const [scheduledOverview, setScheduledOverview] = useState(null);
   const [hardFilterRuleSet, setHardFilterRuleSet] = useState(null);
   const [candidates, setCandidates] = useState([]);
   const [excluded, setExcluded] = useState([]);
@@ -220,6 +223,13 @@ function App() {
       setActiveTab("dashboard");
     }
   }, [activeTab, qualityLabEnabled]);
+
+  useEffect(() => {
+    if (!firebaseEnabled || !authState.user || !authState.admin) return () => {};
+    getScheduledReplyOpportunityOverview()
+      .then(setScheduledOverview)
+      .catch((error) => notify(error.message || "Scheduled Reply Opportunityの読み込みに失敗しました"));
+  }, [authState.user, authState.admin]);
 
   useEffect(() => {
     if (!shouldUseLocalQualityMode()) return () => {};
@@ -329,15 +339,17 @@ function App() {
   async function refreshAll() {
     setLoading(true);
     try {
-      const [status, overview, posts, filterRuleSet] = await Promise.all([
+      const [status, overview, posts, filterRuleSet, scheduled] = await Promise.all([
         getXConnectionStatus(),
         getSyncOverview(),
         listCandidatePosts(),
         getHardFilterRuleSet(),
+        getScheduledReplyOpportunityOverview(),
       ]);
       setConnection(status);
       setSyncOverview(overview);
       setHardFilterRuleSet(filterRuleSet || null);
+      setScheduledOverview(scheduled || null);
       setCandidates(posts.candidates || []);
       setExcluded(posts.excluded || []);
     } catch (error) {
@@ -350,14 +362,16 @@ function App() {
   async function refreshMeta() {
     setLoading(true);
     try {
-      const [status, overview, filterRuleSet] = await Promise.all([
+      const [status, overview, filterRuleSet, scheduled] = await Promise.all([
         getXConnectionStatus(),
         getSyncOverview(),
         getHardFilterRuleSet(),
+        getScheduledReplyOpportunityOverview(),
       ]);
       setConnection(status);
       setSyncOverview(overview);
       setHardFilterRuleSet(filterRuleSet || null);
+      setScheduledOverview(scheduled || null);
     } catch (error) {
       notify(error.message || "接続状態の読み込みに失敗しました");
     } finally {
@@ -384,6 +398,7 @@ function App() {
     setExcluded([]);
     setConnection(null);
     setSyncOverview(null);
+    setScheduledOverview(null);
   }
 
   async function handleBeginOAuth() {
@@ -477,6 +492,67 @@ function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleToggleScheduledReplyOpportunityEnabled() {
+    const nextValue = !(scheduledOverview?.config?.scheduledReplyOpportunityEnabled === true);
+    setLoading(true);
+    try {
+      await saveScheduledReplyOpportunitySetting({
+        scheduledReplyOpportunityEnabled: nextValue,
+        minimumImpressions: scheduledOverview?.config?.minimumImpressions ?? 5000,
+        maxPostAgeHours: scheduledOverview?.config?.maxPostAgeHours ?? 6,
+        generationLimitPerRun: scheduledOverview?.config?.generationLimitPerRun ?? 1,
+        dailyLimit: scheduledOverview?.config?.dailyLimit ?? 10,
+        authorCooldownHours: scheduledOverview?.config?.authorCooldownHours ?? 24,
+        postCooldownHours: scheduledOverview?.config?.postCooldownHours ?? 24,
+        minOpportunityScore: scheduledOverview?.config?.minOpportunityScore ?? 55,
+        weights: scheduledOverview?.config?.weights || undefined,
+      });
+      notify(`Scheduled Reply Opportunity を${nextValue ? "ON" : "OFF"}にしました`);
+      await refreshAll();
+    } catch (error) {
+      notify(formatOperationalError(error, "Scheduled Reply Opportunity設定の保存に失敗しました。"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRunScheduledReplyOpportunityNow() {
+    setLoading(true);
+    try {
+      await runScheduledReplyOpportunityNow();
+      notify("Scheduled Reply Opportunity を実行しました");
+      await refreshAll();
+    } catch (error) {
+      notify(formatOperationalError(error, "Scheduled Reply Opportunityの実行に失敗しました。"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDismissScheduledOpportunity(candidatePostId) {
+    setLoading(true);
+    try {
+      await transitionCandidateWorkflow({ candidatePostId, to: "dismissed" });
+      notify("見送りにしました");
+      await refreshAll();
+    } catch (error) {
+      notify(formatOperationalError(error, "見送りに失敗しました。"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleOpenScheduledOpportunity(candidate) {
+    const text = candidate.replyDraft || candidate.replyText || candidate.recommendedReplyText || "";
+    if (!text) {
+      notify("返信案がありません");
+      return;
+    }
+    const replyUrl = openXReply({ postId: candidate.candidatePostId, replyText: text });
+    notify("Web IntentでXを開きました");
+    return replyUrl;
   }
 
   const handleGenerate = () => {
@@ -707,6 +783,16 @@ function App() {
             )}
             {activeTab === "identity" && <IdentityPanel />}
             {activeTab === "analysis" && <OperationsAnalysis candidates={candidates} />}
+            {activeTab === "scheduled" && (
+              <ScheduledReplyOpportunityPanel
+                overview={scheduledOverview}
+                onToggleEnabled={handleToggleScheduledReplyOpportunityEnabled}
+                onRunNow={handleRunScheduledReplyOpportunityNow}
+                onOpenIntent={handleOpenScheduledOpportunity}
+                onDismiss={handleDismissScheduledOpportunity}
+                loading={loading}
+              />
+            )}
             {activeTab === "readiness" && <ProductionReadinessPanel authState={authState} />}
             {qualityLabEnabled && activeTab === "quality" && (
               <QualityFixturePanel
@@ -1824,6 +1910,100 @@ function QualityFixturePanel({
   );
 }
 
+function ScheduledReplyOpportunityPanel({ overview, onToggleEnabled, onRunNow, onOpenIntent, onDismiss, loading }) {
+  const config = overview?.config || {};
+  const state = overview?.state || {};
+  const latest = overview?.opportunities?.[0] || null;
+  const nextRun = formatNextScheduledRun(state.lastRunAt);
+  const enabled = config.scheduledReplyOpportunityEnabled === true;
+  const buttonsDisabled = loading;
+  return (
+    <div className="panel-stack">
+      <section className="work-panel">
+        <div className="panel-title">
+          <div>
+            <h3>Scheduled Reply Opportunity</h3>
+            <span>毎日 06:00-23:00 JST の候補選定と返信案生成。自動投稿はしません。</span>
+          </div>
+          <span className={enabled ? "judge-pass" : "judge-warn"}>{enabled ? "ON" : "OFF"}</span>
+        </div>
+        <div className="release-info-grid">
+          <article className="readiness-item warning"><span className="readiness-status">固定</span><div><strong>scheduledReplyOpportunityEnabled</strong><p>{enabled ? "true" : "false"}</p></div></article>
+          <article className="readiness-item warning"><span className="readiness-status">固定</span><div><strong>最終実行日時</strong><p>{formatDate(state.lastRunAt)}</p></div></article>
+          <article className="readiness-item warning"><span className="readiness-status">固定</span><div><strong>次回予定</strong><p>{nextRun}</p></div></article>
+          <article className="readiness-item warning"><span className="readiness-status">固定</span><div><strong>日次件数</strong><p>{formatDailyCount(state)}</p></div></article>
+        </div>
+        <div className="action-row">
+          <button type="button" className="primary-action" onClick={onToggleEnabled} disabled={buttonsDisabled}>
+            <Settings size={17} />
+            {enabled ? "OFFにする" : "ONにする"}
+          </button>
+          <button type="button" className="quiet-action" onClick={onRunNow} disabled={buttonsDisabled}>
+            <RefreshCw size={17} />
+            今すぐ実行
+          </button>
+        </div>
+      </section>
+
+      <section className="work-panel">
+        <div className="panel-title">
+          <div>
+            <h3>今回の候補</h3>
+            <span>候補が弱い場合は 0 件で正常終了します</span>
+          </div>
+        </div>
+        {latest ? (
+          <div className="candidate-mini-card">
+            <div className="quality-block-head">
+              <span className="quality-block-kicker">@{latest.authorUsername || latest.authorName || latest.candidatePostId}</span>
+              <span className="judge-pass">Score {latest.opportunityScore ?? "?"}</span>
+            </div>
+            <p className="quality-block-text">{latest.postText || "本文なし"}</p>
+            <p className="profile-copy">選定理由: {latest.selectedReason || "未確認"}</p>
+            <p className="profile-copy">除外理由: {(latest.excludedReasons || []).join(" / ") || "なし"}</p>
+            <p className="profile-copy">返信案: {latest.replyDraft || latest.replyText || "未生成"}</p>
+            <div className="action-row">
+              <button type="button" className="primary-action" onClick={() => onOpenIntent(latest)} disabled={buttonsDisabled || !(latest.replyDraft || latest.replyText)}>
+                <ExternalLink size={17} />
+                X Web Intentで返信
+              </button>
+              <button type="button" className="quiet-action" onClick={() => onDismiss(latest.candidatePostId)} disabled={buttonsDisabled}>
+                見送り
+              </button>
+              <button type="button" className="quiet-action" onClick={onRunNow} disabled={buttonsDisabled}>
+                再生成
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="profile-copy">今回の候補はまだありません。</p>
+        )}
+      </section>
+
+      <section className="work-panel">
+        <div className="panel-title">
+          <div>
+            <h3>選定履歴</h3>
+            <span>最新 10 件</span>
+          </div>
+        </div>
+        <div className="quality-list">
+          {(overview?.opportunities || []).map((item) => (
+            <article key={item.id || item.candidatePostId} className="quality-block">
+              <div className="quality-block-head">
+                <span className="quality-block-kicker">@{item.authorUsername || item.authorName || item.candidatePostId}</span>
+                <span className="quality-block-kicker">Score {item.opportunityScore ?? "?"}</span>
+              </div>
+              <p className="quality-block-text">{item.postText || "本文なし"}</p>
+              <p className="profile-copy">{item.selectedReason || "選定理由なし"}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function StatCard({ label, value, status }) {
   return (
     <article className="stat-card">
@@ -1843,6 +2023,21 @@ function formatDate(value) {
   const time = toTime(value);
   if (!Number.isFinite(time)) return "未取得";
   return new Intl.DateTimeFormat("ja-JP", { dateStyle: "short", timeStyle: "short" }).format(new Date(time));
+}
+
+function formatNextScheduledRun(lastRunAt) {
+  const time = toTime(lastRunAt);
+  if (!Number.isFinite(time)) return "06:00 JST";
+  const next = new Date(time + 60 * 60 * 1000);
+  return `${new Intl.DateTimeFormat("ja-JP", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Tokyo" }).format(next)} 目安`;
+}
+
+function formatDailyCount(state) {
+  const counts = state?.dailyCounts || {};
+  const keys = Object.keys(counts);
+  if (!keys.length) return "0件";
+  const latestKey = keys.sort().at(-1);
+  return `${counts[latestKey] || 0}件 (${latestKey})`;
 }
 
 function formatElapsed(value) {

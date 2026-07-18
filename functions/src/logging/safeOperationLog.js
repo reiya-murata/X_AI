@@ -5,9 +5,10 @@ const RETENTION_DAYS = 90;
 const ALLOWED_ACTIONS = new Set([
   "candidate_fetched", "draft_generated", "draft_edited", "reply_edited", "web_intent_opened", "manual_send_recorded",
   "not_sent_recorded", "outcome_recorded", "usage_feedback_saved", "status_changed", "preflight_run", "environment_rejected",
-  "backup_created", "restore_tested", "migration_dry_run",
+  "backup_created", "restore_tested", "migration_dry_run", "scheduled_reply_opportunity_generated", "scheduled_reply_opportunity_dismissed",
+  "scheduled_reply_opportunity_regenerated", "scheduled_reply_opportunity_skipped",
 ]);
-const ALLOWED_METADATA = new Set(["feedback", "notSentReason", "replyDraftId", "likes", "replies", "reposts", "from", "to", "duplicate", "errorCategory", "retryable", "documentCount", "collectionCount", "migrationId", "action", "source", "requestedMaxResults", "actualApiCalls", "fetchedCount", "savedCount", "duplicateCount", "excludedCount", "sinceIdUsed", "previousSinceIdPresent", "syncMode", "cooldownApplied", "result", "correlationId"]);
+const ALLOWED_METADATA = new Set(["feedback", "notSentReason", "replyDraftId", "likes", "replies", "reposts", "from", "to", "duplicate", "errorCategory", "retryable", "documentCount", "collectionCount", "migrationId", "action", "source", "requestedMaxResults", "actualApiCalls", "fetchedCount", "savedCount", "duplicateCount", "excludedCount", "sinceIdUsed", "previousSinceIdPresent", "syncMode", "cooldownApplied", "result", "correlationId", "opportunityScore", "candidatePostId", "selectedCount"]);
 const SECRET_KEY = /(authorization|api.?key|access.?token|refresh.?token|oauth|cookie|password|secret|private.?key|prompt|body|text|email)/i;
 const SECRET_VALUE = /(bearer\s+[a-z0-9._-]+|sk-[a-z0-9_-]{12,}|-----BEGIN [A-Z ]+PRIVATE KEY-----)/i;
 

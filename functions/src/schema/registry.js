@@ -25,6 +25,10 @@ const definitions = Object.freeze({
   xConnections: { version: 1, required: ["firebaseUid", "status"], optional: ["xUserId", "username", "encryptedAccessToken", "encryptedRefreshToken", "accessTokenExpiresAt"] },
   filterRuleSets: { version: 1, required: ["filterRuleSetId"], optional: ["minimumTextLength", "maxPostAgeHours", "maxAgeHours", "minimumImpressions", "allowedLanguages", "excludeSensitive", "excludedKeywords", "blockedAuthorIds", "version", "updatedAt"] },
   qualityEvaluations: { version: 2, required: ["fixtureId", "candidateId", "overallDecision", "evaluationOrigin"], optional: ["scores", "tags", "evaluatedAt", "sourceType"] },
+  scheduledReplyOpportunitySettings: { version: 1, required: ["scheduledReplyOpportunityEnabled"], optional: ["minimumImpressions", "maxPostAgeHours", "generationLimitPerRun", "dailyLimit", "authorCooldownHours", "postCooldownHours", "minOpportunityScore", "weights", "version", "updatedAt"] },
+  scheduledReplyOpportunityState: { version: 1, required: [], optional: ["lockOwner", "lockUntil", "lastRunAt", "lastRunKey", "lastResultStatus", "lastResultSelectedCount", "dailyCounts", "updatedAt"] },
+  scheduledReplyOpportunityRuns: { version: 1, required: ["runKey", "dayKey", "status"], optional: ["startedAt", "completedAt", "selectedCount", "errorCode", "errorMessage", "configSnapshot", "lockOwner", "updatedAt"] },
+  scheduledReplyOpportunities: { version: 1, required: ["scheduledReplyOpportunityId", "candidatePostId", "status"], optional: ["candidateDocId", "firebaseUid", "authorId", "authorUsername", "authorName", "postText", "postUrl", "sourceTypes", "opportunityScore", "scoreComponents", "selectedReason", "excludedReasons", "replyDraftId", "replyText", "replyDraft", "generationResult", "notificationSentAt", "dismissedAt", "skippedAt", "createdAt", "updatedAt", "runKey", "dayKey"] },
 });
 
 function validateDocument(collection, data = {}) {
@@ -42,6 +46,7 @@ function validateDocument(collection, data = {}) {
     if (data.workflowStatus === "intent_opened" && !data.intentOpenedAt) errors.push("intent_opened: intentOpenedAt required");
   }
   if (collection === "replyDrafts" && Array.isArray(data.candidates) && data.candidates.length > schema.max.candidates) errors.push("candidates: too many entries");
+  if (collection === "scheduledReplyOpportunities" && String(data.status || "") === "ready" && !data.replyDraftId) errors.push("ready: replyDraftId required");
   return { valid: errors.length === 0, errors, warnings };
 }
 
