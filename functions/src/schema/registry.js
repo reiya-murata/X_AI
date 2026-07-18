@@ -23,7 +23,7 @@ const definitions = Object.freeze({
   users: { version: 1, required: [], optional: ["email", "role", "createdAt"] },
   identityContext: { version: 1, required: [], optional: ["title", "summary", "status", "claimLevel"] },
   xConnections: { version: 1, required: ["firebaseUid", "status"], optional: ["xUserId", "username", "encryptedAccessToken", "encryptedRefreshToken", "accessTokenExpiresAt"] },
-  filterRuleSets: { version: 1, required: ["filterRuleSetId"], optional: ["minimumTextLength", "maxAgeHours", "minimumImpressions", "allowedLanguages", "excludeSensitive", "excludedKeywords", "blockedAuthorIds", "version", "updatedAt"] },
+  filterRuleSets: { version: 1, required: ["filterRuleSetId"], optional: ["minimumTextLength", "maxPostAgeHours", "maxAgeHours", "minimumImpressions", "allowedLanguages", "excludeSensitive", "excludedKeywords", "blockedAuthorIds", "version", "updatedAt"] },
   qualityEvaluations: { version: 2, required: ["fixtureId", "candidateId", "overallDecision", "evaluationOrigin"], optional: ["scores", "tags", "evaluatedAt", "sourceType"] },
 });
 

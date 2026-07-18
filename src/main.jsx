@@ -79,6 +79,15 @@ const minimumImpressionOptions = [
   { value: 50000, label: "50,000以上" },
 ];
 
+const maxPostAgeOptions = [
+  { value: 0, label: "制限なし" },
+  { value: 3, label: "3時間以内" },
+  { value: 6, label: "6時間以内" },
+  { value: 12, label: "12時間以内" },
+  { value: 24, label: "24時間以内" },
+  { value: 48, label: "48時間以内" },
+];
+
 function getGenerationButtonLabel() {
   return runtimeInfo.openAi === "Real" ? "実AIで生成" : "モック生成";
 }
@@ -102,6 +111,12 @@ function formatMinimumImpressionsLabel(value) {
   const numeric = Number(value || 0);
   if (!numeric) return "制限なし";
   return `${numeric.toLocaleString()}以上`;
+}
+
+function formatMaxPostAgeLabel(value) {
+  const numeric = Number(value || 0);
+  if (!numeric) return "制限なし";
+  return `${numeric}時間以内`;
 }
 
 function sumRecentUsage(runs = []) {
@@ -267,6 +282,7 @@ function App() {
       onNext: setCandidates,
       onError: (error) => notify(error.message || "候補の購読に失敗しました"),
       minimumImpressions: hardFilterRuleSet?.minimumImpressions ?? 10000,
+      maxPostAgeHours: hardFilterRuleSet?.maxPostAgeHours ?? 24,
     });
     const unsubscribeExcluded = subscribeExcludedPosts({
       onNext: setExcluded,
@@ -282,7 +298,7 @@ function App() {
       unsubscribeEvaluations();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authState.user, authState.admin, hardFilterRuleSet?.minimumImpressions]);
+  }, [authState.user, authState.admin, hardFilterRuleSet?.minimumImpressions, hardFilterRuleSet?.maxPostAgeHours]);
 
   const stats = useMemo(() => {
     const sourceCount = new Set(candidates.flatMap((item) => item.sourceTypes || [])).size;
@@ -431,12 +447,33 @@ function App() {
     const minimumImpressions = Number(nextValue);
     setLoading(true);
     try {
-      const updated = await saveHardFilterRuleSet({ minimumImpressions });
-      setHardFilterRuleSet(updated || { minimumImpressions });
+      const updated = await saveHardFilterRuleSet({
+        minimumImpressions,
+        maxPostAgeHours: hardFilterRuleSet?.maxPostAgeHours ?? 24,
+      });
+      setHardFilterRuleSet(updated || { minimumImpressions, maxPostAgeHours: hardFilterRuleSet?.maxPostAgeHours ?? 24 });
       notify(`最低インプレッションを${formatMinimumImpressionsLabel(minimumImpressions)}にしました`);
       await refreshAll();
     } catch (error) {
       notify(formatOperationalError(error, "最低インプレッション設定の保存に失敗しました。"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSaveMaxPostAgeHours(nextValue) {
+    const maxPostAgeHours = Number(nextValue);
+    setLoading(true);
+    try {
+      const updated = await saveHardFilterRuleSet({
+        minimumImpressions: hardFilterRuleSet?.minimumImpressions ?? 10000,
+        maxPostAgeHours,
+      });
+      setHardFilterRuleSet(updated || { minimumImpressions: hardFilterRuleSet?.minimumImpressions ?? 10000, maxPostAgeHours });
+      notify(`投稿の新しさを${formatMaxPostAgeLabel(maxPostAgeHours)}にしました`);
+      await refreshAll();
+    } catch (error) {
+      notify(formatOperationalError(error, "投稿の新しさ設定の保存に失敗しました。"));
     } finally {
       setLoading(false);
     }
@@ -648,6 +685,7 @@ function App() {
               onFetchList={handleFetchList}
               onRefresh={firebaseEnabled ? refreshMeta : refreshAll}
               onSaveMinimumImpressions={handleSaveMinimumImpressions}
+              onSaveMaxPostAgeHours={handleSaveMaxPostAgeHours}
             />
 
             {activeTab === "dashboard" && (
@@ -802,7 +840,7 @@ function UserBar({ user, admin, onLogout }) {
 }
 
 function ConnectionPanel(props) {
-  const { connection, syncOverview, hardFilterRuleSet, listId, setListId, listName, setListName, loading, onConnect, onDisconnect, onFetchHome, onFetchList, onRefresh, onSaveMinimumImpressions } = props;
+  const { connection, syncOverview, hardFilterRuleSet, listId, setListId, listName, setListName, loading, onConnect, onDisconnect, onFetchHome, onFetchList, onRefresh, onSaveMinimumImpressions, onSaveMaxPostAgeHours } = props;
   const homeState = syncOverview?.states?.find((item) => item.sourceType === "home_timeline") || syncOverview?.states?.[0];
   const listState = syncOverview?.states?.find((item) => item.sourceType === "watch_list" && String(item.listId || "") === String(listId || ""));
   const recentUsage = sumRecentUsage(syncOverview?.runs || []);
@@ -815,7 +853,8 @@ function ConnectionPanel(props) {
   const cooldownActive = Boolean(cooldownUntil && new Date(cooldownUntil).getTime() > Date.now());
   const listCooldownActive = Boolean(listCooldownUntil && new Date(listCooldownUntil).getTime() > Date.now());
   const syncLabel = homeState?.lastSyncMode === "incremental" ? "通常差分同期" : "初回同期";
-  const currentMinimumImpressions = Number(hardFilterRuleSet?.minimumImpressions || 0);
+  const currentMinimumImpressions = Number(hardFilterRuleSet?.minimumImpressions ?? 10000);
+  const currentMaxPostAgeHours = Number(hardFilterRuleSet?.maxPostAgeHours ?? 24);
   const homeButtonLabel = !connection?.connected
     ? "Xと接続してください"
     : !hasRequiredScopes
@@ -880,6 +919,7 @@ function ConnectionPanel(props) {
           <p>重複 {homeState?.lastDuplicateCount ?? 0}件 / 除外 {homeState?.lastExcludedCount ?? 0}件 / since_id {homeState?.sinceIdUsed ? "あり" : "なし"}</p>
           <p>取得モード: {syncLabel} / 次回取得: {cooldownUntil ? `${formatDate(cooldownUntil)} (${formatRelativeCooldown(cooldownUntil)})` : "いつでも"}</p>
           <p>最低インプレッション: {formatMinimumImpressionsLabel(currentMinimumImpressions)}</p>
+          <p>投稿の新しさ: {formatMaxPostAgeLabel(currentMaxPostAgeHours)}</p>
           <p>直近24時間: API {recentUsage.apiCalls}回 / 取得 {recentUsage.fetched}件</p>
           <p>since_id: {homeState?.latestSinceId || "未保存"}</p>
         </div>
@@ -892,6 +932,18 @@ function ConnectionPanel(props) {
           aria-label="最低インプレッション"
         >
           {minimumImpressionOptions.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <label className="field-label" htmlFor="max-post-age">投稿の新しさ</label>
+        <select
+          id="max-post-age"
+          value={currentMaxPostAgeHours}
+          onChange={(event) => onSaveMaxPostAgeHours(Number(event.target.value))}
+          disabled={loading}
+          aria-label="投稿の新しさ"
+        >
+          {maxPostAgeOptions.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
@@ -1166,11 +1218,11 @@ function OutcomeForm({ value, setValue, onSave, saving }) {
 }
 
 function sortCandidates(a, b, mode, replyDraftLookup = {}) {
-  if (mode === "oldest") return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+  if (mode === "oldest") return toTime(a.createdAt) - toTime(b.createdAt);
   if (mode === "followers") return (b.authorMetrics?.followers || 0) - (a.authorMetrics?.followers || 0);
   if (mode === "review") return Number(resolveDisplayedWorkflowStatus(b, replyDraftLookup[b.postId]) === "needs_review") - Number(resolveDisplayedWorkflowStatus(a, replyDraftLookup[a.postId]) === "needs_review");
-  if (mode === "priority") return (b.scores?.total || 0) - (a.scores?.total || 0) || new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
-  return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+  if (mode === "priority") return (b.scores?.total || 0) - (a.scores?.total || 0) || toTime(b.createdAt) - toTime(a.createdAt);
+  return toTime(b.createdAt) - toTime(a.createdAt);
 }
 
 function resolveShouldReply(candidate, aiState) {
@@ -1788,15 +1840,23 @@ function formatPercent(value) {
 }
 
 function formatDate(value) {
-  if (!value) return "未取得";
-  return new Intl.DateTimeFormat("ja-JP", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+  const time = toTime(value);
+  if (!Number.isFinite(time)) return "未取得";
+  return new Intl.DateTimeFormat("ja-JP", { dateStyle: "short", timeStyle: "short" }).format(new Date(time));
 }
 
 function formatElapsed(value) {
-  if (!value) return "日時不明";
-  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60000));
+  const time = toTime(value);
+  if (!Number.isFinite(time)) return "日時不明";
+  const minutes = Math.max(0, Math.round((Date.now() - time) / 60000));
   if (minutes < 60) return `${minutes}分前`;
   return `${Math.round(minutes / 60)}時間前`;
+}
+
+function toTime(value) {
+  if (value == null || value === "") return Number.NaN;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : Number.NaN;
 }
 
 createRoot(document.getElementById("root")).render(<App />);

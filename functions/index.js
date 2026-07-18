@@ -21,7 +21,7 @@ const {
 } = require("./src/x/xApiClient");
 const { mockConnection } = require("./src/x/mockFixtures");
 const { syncTimeline } = require("./src/x/syncTimeline");
-const { defaultRuleSet, loadHardFilterRuleSet, saveHardFilterRuleSet, passesMinimumImpressions } = require("./src/x/hardFilter");
+const { loadHardFilterRuleSet, saveHardFilterRuleSet, passesMinimumImpressions, passesMaxPostAge } = require("./src/x/hardFilter");
 const { safeMessage } = require("./src/x/errors");
 const { requireAdmin } = require("./src/auth/requireAdmin");
 const { deprecatedAiCallable } = require("./src/phase3/deprecatedCallables");
@@ -63,7 +63,11 @@ const SaveWatchListSchema = z.object({
 });
 
 const SaveHardFilterRuleSetSchema = z.object({
-  minimumImpressions: z.number().int().min(0),
+  minimumImpressions: z.number().int().min(0).optional(),
+  maxPostAgeHours: z.number().int().min(0).optional(),
+  maxAgeHours: z.number().int().min(0).optional(),
+}).refine((value) => value.minimumImpressions !== undefined || value.maxPostAgeHours !== undefined || value.maxAgeHours !== undefined, {
+  message: "最低インプレッション数または最大経過時間を確認してください。",
 });
 
 exports.seedIdentityDefaults = onCall({ region: "asia-northeast1" }, async (request) => {
@@ -267,11 +271,8 @@ exports.getHardFilterRuleSet = onCall({ region: "asia-northeast1" }, async (requ
 exports.saveHardFilterRuleSet = onCall({ region: "asia-northeast1" }, async (request) => {
   requireAdmin(request);
   const parsed = SaveHardFilterRuleSetSchema.safeParse(request.data || {});
-  if (!parsed.success) throw new HttpsError("invalid-argument", "最低インプレッション数を確認してください。");
-  return saveHardFilterRuleSet(db, {
-    ...defaultRuleSet,
-    minimumImpressions: parsed.data.minimumImpressions,
-  });
+  if (!parsed.success) throw new HttpsError("invalid-argument", "最低インプレッション数または最大経過時間を確認してください。");
+  return saveHardFilterRuleSet(db, parsed.data);
 });
 
 exports.listCandidatePosts = onCall({ region: "asia-northeast1" }, async (request) => {
@@ -293,6 +294,7 @@ exports.listCandidatePosts = onCall({ region: "asia-northeast1" }, async (reques
       .filter((post) => post.hardFilter?.passed === true)
       .filter((post) => !post.expiresAt || new Date(post.expiresAt).getTime() > Date.now())
       .filter((post) => passesMinimumImpressions(post, ruleSet.minimumImpressions))
+      .filter((post) => passesMaxPostAge(post, ruleSet.maxPostAgeHours))
       .slice(0, 50),
     excluded: excluded.docs.map(toClientPost),
   };

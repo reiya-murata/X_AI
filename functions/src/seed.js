@@ -165,7 +165,8 @@ function buildSeedDocuments() {
       data: {
         filterRuleSetId: "x-hard-filter-v1",
         minimumTextLength: 20,
-        maxAgeHours: 6,
+        maxPostAgeHours: 24,
+        maxAgeHours: 24,
         minimumImpressions: 10000,
         allowedLanguages: ["ja"],
         excludeSensitive: true,

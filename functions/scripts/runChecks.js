@@ -13,6 +13,7 @@ const { applyHardFilter, defaultRuleSet } = require("../src/x/hardFilter");
 process.env.X_TOKEN_ENCRYPTION_KEY = "dev-only-32-byte-key-for-local!!";
 
 function run() {
+  const nowMs = Date.parse("2026-07-18T12:00:00.000Z");
   const state = randomUrlSafe(32);
   assert.equal(typeof state, "string");
   assert.ok(state.length >= 32);
@@ -76,6 +77,79 @@ function run() {
     ruleSet: defaultRuleSet,
   });
   assert.ok(giveaway.exclusionReasons.includes("giveaway_or_follow_campaign"));
+
+  const ageRule = { ...defaultRuleSet, minimumImpressions: 10000, maxPostAgeHours: 24, maxAgeHours: 24 };
+  const ageBasePost = {
+    ...normalized[0],
+    metrics: { ...normalized[0].metrics, impressions: 10000 },
+    text: `${normalized[0].text} `,
+  };
+  assert.equal(applyHardFilter({
+    post: { ...ageBasePost, createdAt: new Date(nowMs - 23 * 60 * 60 * 1000 - 59 * 60 * 1000 - 59 * 1000).toISOString() },
+    ownXUserId: "1000000000000000000",
+    ruleSet: ageRule,
+    nowMs,
+  }).passed, true);
+  assert.equal(applyHardFilter({
+    post: { ...ageBasePost, createdAt: new Date(nowMs - 24 * 60 * 60 * 1000).toISOString() },
+    ownXUserId: "1000000000000000000",
+    ruleSet: ageRule,
+    nowMs,
+  }).passed, true);
+  assert.ok(applyHardFilter({
+    post: { ...ageBasePost, createdAt: new Date(nowMs - 24 * 60 * 60 * 1000 - 1).toISOString() },
+    ownXUserId: "1000000000000000000",
+    ruleSet: ageRule,
+    nowMs,
+  }).exclusionReasons.includes("too_old"));
+  assert.ok(applyHardFilter({
+    post: { ...ageBasePost, createdAt: null },
+    ownXUserId: "1000000000000000000",
+    ruleSet: ageRule,
+    nowMs,
+  }).exclusionReasons.includes("too_old"));
+  assert.ok(applyHardFilter({
+    post: { ...ageBasePost, createdAt: undefined },
+    ownXUserId: "1000000000000000000",
+    ruleSet: ageRule,
+    nowMs,
+  }).exclusionReasons.includes("too_old"));
+  assert.ok(applyHardFilter({
+    post: { ...ageBasePost, createdAt: "not-a-date" },
+    ownXUserId: "1000000000000000000",
+    ruleSet: ageRule,
+    nowMs,
+  }).exclusionReasons.includes("too_old"));
+  assert.equal(applyHardFilter({
+    post: { ...ageBasePost, createdAt: new Date(nowMs + 10 * 60 * 1000).toISOString() },
+    ownXUserId: "1000000000000000000",
+    ruleSet: ageRule,
+    nowMs,
+  }).passed, true);
+  assert.equal(applyHardFilter({
+    post: { ...ageBasePost, createdAt: new Date(nowMs - 3 * 60 * 60 * 1000).toISOString() },
+    ownXUserId: "1000000000000000000",
+    ruleSet: { ...ageRule, maxPostAgeHours: 0, maxAgeHours: 0 },
+    nowMs,
+  }).passed, true);
+  assert.ok(applyHardFilter({
+    post: { ...ageBasePost, metrics: { ...ageBasePost.metrics, impressions: 9999 }, createdAt: new Date(nowMs - 30 * 60 * 1000).toISOString() },
+    ownXUserId: "1000000000000000000",
+    ruleSet: ageRule,
+    nowMs,
+  }).exclusionReasons.includes("below_minimum_impressions"));
+  assert.ok(applyHardFilter({
+    post: { ...ageBasePost, metrics: { ...ageBasePost.metrics, impressions: 10000 }, createdAt: new Date(nowMs - 25 * 60 * 60 * 1000).toISOString() },
+    ownXUserId: "1000000000000000000",
+    ruleSet: ageRule,
+    nowMs,
+  }).exclusionReasons.includes("too_old"));
+  assert.equal(applyHardFilter({
+    post: { ...ageBasePost, metrics: { ...ageBasePost.metrics, impressions: 10000 }, createdAt: new Date(nowMs - 12 * 60 * 60 * 1000).toISOString() },
+    ownXUserId: "1000000000000000000",
+    ruleSet: ageRule,
+    nowMs,
+  }).passed, true);
 
   const params = new URLSearchParams({
     in_reply_to: "1810000000000000001",

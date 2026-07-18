@@ -1,7 +1,8 @@
 const defaultRuleSet = {
   filterRuleSetId: "x-hard-filter-v1",
   minimumTextLength: 20,
-  maxAgeHours: 6,
+  maxPostAgeHours: 24,
+  maxAgeHours: 24,
   minimumImpressions: 10000,
   allowedLanguages: ["ja"],
   excludeSensitive: true,
@@ -23,7 +24,7 @@ async function loadHardFilterRuleSet(db) {
   return snap.exists ? normalizeRuleSet({ ...defaultRuleSet, ...snap.data() }) : defaultRuleSet;
 }
 
-function applyHardFilter({ post, ownXUserId, ruleSet, alreadyProcessed = false }) {
+function applyHardFilter({ post, ownXUserId, ruleSet, alreadyProcessed = false, nowMs = Date.now() }) {
   const effectiveRuleSet = normalizeRuleSet(ruleSet);
   const reasons = [];
   if (!/^\d+$/.test(post.postId)) reasons.push("invalid_post_id");
@@ -32,7 +33,7 @@ function applyHardFilter({ post, ownXUserId, ruleSet, alreadyProcessed = false }
   if (post.authorId === ownXUserId) reasons.push("self_post");
   if (effectiveRuleSet.excludeSensitive && post.possiblySensitive) reasons.push("sensitive");
   if (post.language && !effectiveRuleSet.allowedLanguages.includes(post.language)) reasons.push("unsupported_language");
-  if (createdAt && Date.now() - createdAt.getTime() > effectiveRuleSet.maxAgeHours * 60 * 60 * 1000) reasons.push("too_old");
+  if (passesMaxPostAge(post, effectiveRuleSet.maxPostAgeHours, nowMs) === false) reasons.push("too_old");
   if (passesMinimumImpressions(post, effectiveRuleSet.minimumImpressions) === false) reasons.push("below_minimum_impressions");
   if (!post.text.trim()) reasons.push("empty_text");
   if (post.text.trim().length < effectiveRuleSet.minimumTextLength) reasons.push("too_short");
@@ -63,7 +64,9 @@ function applyHardFilter({ post, ownXUserId, ruleSet, alreadyProcessed = false }
 }
 
 async function saveHardFilterRuleSet(db, nextRuleSet = {}) {
-  const merged = normalizeRuleSet({ ...defaultRuleSet, ...nextRuleSet });
+  const currentSnap = await db.collection("filterRuleSets").doc(defaultRuleSet.filterRuleSetId).get();
+  const currentRuleSet = currentSnap.exists ? currentSnap.data() : {};
+  const merged = normalizeRuleSet({ ...defaultRuleSet, ...currentRuleSet, ...nextRuleSet });
   await db.collection("filterRuleSets").doc(defaultRuleSet.filterRuleSetId).set({
     ...merged,
     updatedAt: new Date().toISOString(),
@@ -72,10 +75,15 @@ async function saveHardFilterRuleSet(db, nextRuleSet = {}) {
 }
 
 function normalizeRuleSet(ruleSet = {}) {
+  const normalizedMaxPostAgeHours = normalizeInteger(
+    ruleSet.maxPostAgeHours,
+    defaultRuleSet.maxPostAgeHours,
+  );
   return {
     ...ruleSet,
     minimumTextLength: normalizeInteger(ruleSet.minimumTextLength, defaultRuleSet.minimumTextLength),
-    maxAgeHours: normalizeInteger(ruleSet.maxAgeHours, defaultRuleSet.maxAgeHours),
+    maxPostAgeHours: normalizedMaxPostAgeHours,
+    maxAgeHours: normalizedMaxPostAgeHours,
     minimumImpressions: normalizeInteger(ruleSet.minimumImpressions, defaultRuleSet.minimumImpressions),
   };
 }
@@ -92,4 +100,19 @@ function passesMinimumImpressions(post, minimumImpressions) {
   return impressions != null && impressions >= threshold;
 }
 
-module.exports = { defaultRuleSet, loadHardFilterRuleSet, applyHardFilter, saveHardFilterRuleSet, normalizeRuleSet, passesMinimumImpressions };
+function passesMaxPostAge(post, maxPostAgeHours, nowMs = Date.now()) {
+  const threshold = normalizeInteger(maxPostAgeHours, 0);
+  if (threshold <= 0) return true;
+  const createdAtMs = parseCreatedAtMs(post?.createdAt);
+  if (!Number.isFinite(createdAtMs)) return false;
+  return nowMs - createdAtMs <= threshold * 60 * 60 * 1000;
+}
+
+function parseCreatedAtMs(value) {
+  if (value == null || value === "") return Number.NaN;
+  if (typeof value === "number") return Number.isFinite(value) ? value : Number.NaN;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+module.exports = { defaultRuleSet, loadHardFilterRuleSet, applyHardFilter, saveHardFilterRuleSet, normalizeRuleSet, passesMinimumImpressions, passesMaxPostAge };

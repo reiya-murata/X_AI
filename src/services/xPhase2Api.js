@@ -17,7 +17,8 @@ const mockConnection = {
 const mockHardFilterRuleSet = {
   filterRuleSetId: "x-hard-filter-v1",
   minimumTextLength: 20,
-  maxAgeHours: 6,
+  maxPostAgeHours: 24,
+  maxAgeHours: 24,
   minimumImpressions: 10000,
   allowedLanguages: ["ja"],
   excludeSensitive: true,
@@ -139,8 +140,10 @@ export async function getHardFilterRuleSet() {
 
 export async function saveHardFilterRuleSet(setting) {
   if (!firebaseEnabled) {
-    if (typeof setting?.minimumImpressions === "number") {
-      mockHardFilterRuleSet.minimumImpressions = setting.minimumImpressions;
+    if (typeof setting?.minimumImpressions === "number") mockHardFilterRuleSet.minimumImpressions = setting.minimumImpressions;
+    if (typeof setting?.maxPostAgeHours === "number") {
+      mockHardFilterRuleSet.maxPostAgeHours = setting.maxPostAgeHours;
+      mockHardFilterRuleSet.maxAgeHours = setting.maxPostAgeHours;
     }
     return { ok: true, ...mockHardFilterRuleSet };
   }
@@ -150,8 +153,9 @@ export async function saveHardFilterRuleSet(setting) {
 export async function listCandidatePosts() {
   if (!firebaseEnabled) {
     const minimumImpressions = Number(mockHardFilterRuleSet.minimumImpressions || 0);
+    const maxPostAgeHours = Number(mockHardFilterRuleSet.maxPostAgeHours ?? 0);
     return {
-      candidates: mockCandidates.filter((post) => passesMinimumImpressions(post, minimumImpressions)),
+      candidates: mockCandidates.filter((post) => passesMinimumImpressions(post, minimumImpressions) && passesMaxPostAge(post, maxPostAgeHours)),
       excluded: mockExcluded,
     };
   }
@@ -184,4 +188,18 @@ function passesMinimumImpressions(post, minimumImpressions) {
   if (!minimumImpressions) return true;
   const impressions = Number.isFinite(Number(post.metrics?.impressions)) ? Number(post.metrics.impressions) : null;
   return impressions != null && impressions >= minimumImpressions;
+}
+
+function passesMaxPostAge(post, maxPostAgeHours) {
+  const threshold = Number(maxPostAgeHours || 0);
+  if (!threshold) return true;
+  const createdAtMs = parseCreatedAtMs(post?.createdAt);
+  if (!Number.isFinite(createdAtMs)) return false;
+  return Date.now() - createdAtMs <= threshold * 60 * 60 * 1000;
+}
+
+function parseCreatedAtMs(value) {
+  if (value == null || value === "") return Number.NaN;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
 }

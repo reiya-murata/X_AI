@@ -16,7 +16,7 @@ const mockConnection = {
 
 function mockTimelinePage(sourceType, page = 1) {
   const fresh = new Date(now - 30 * 60 * 1000).toISOString();
-  const old = new Date(now - 8 * 60 * 60 * 1000).toISOString();
+  const old = new Date(now - 25 * 60 * 60 * 1000).toISOString();
   const baseUsers = [
     user("2000000000000000001", "AI業務改善メモ", "ai_ops_note", 18400),
     user("2000000000000000002", "Web制作とAI", "web_ai_flow", 6200),

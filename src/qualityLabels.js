@@ -64,10 +64,10 @@ const versionLabels = {
 
 const exclusionReasonLabels = {
   below_minimum_impressions: "最低インプレッション未満",
+  too_old: "投稿が古すぎます",
   self_post: "自分の投稿",
   giveaway_or_follow_campaign: "フォロー・リポスト系のキャンペーン",
   protected_author: "鍵アカウント",
-  too_old: "古い投稿",
   too_short: "本文が短い",
   unsupported_language: "対応外の言語",
   sensitive: "センシティブ",

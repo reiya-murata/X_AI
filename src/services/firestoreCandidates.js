@@ -8,7 +8,7 @@ import {
 } from "firebase/firestore";
 import { db, firebaseEnabled } from "../lib/firebase";
 
-export function subscribeCandidatePosts({ onNext, onError, minimumImpressions = 0 }) {
+export function subscribeCandidatePosts({ onNext, onError, minimumImpressions = 0, maxPostAgeHours = 24 }) {
   if (!firebaseEnabled || !db) return () => {};
   const candidatesQuery = query(collection(db, "candidatePosts"), orderBy("createdAt", "desc"), limit(120));
   return onSnapshot(
@@ -21,8 +21,9 @@ export function subscribeCandidatePosts({ onNext, onError, minimumImpressions = 
         .filter((post) => post.hardFilter?.passed === true)
         .filter((post) => post.status !== "filtered_out")
         .filter((post) => passesMinimumImpressions(post, minimumImpressions))
+        .filter((post) => passesMaxPostAge(post, maxPostAgeHours))
         .filter((post) => !post.expiresAt || new Date(post.expiresAt).getTime() > now || ["sent_manual", "not_sent", "dismissed", "archived"].includes(post.workflowStatus))
-        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+        .sort((a, b) => toTime(b.createdAt) - toTime(a.createdAt))
         .slice(0, 50);
       onNext(posts);
     },
@@ -99,6 +100,25 @@ function passesMinimumImpressions(post, minimumImpressions) {
   if (!minimumImpressions || Number(minimumImpressions) <= 0) return true;
   const impressions = Number.isFinite(Number(post.metrics?.impressions)) ? Number(post.metrics.impressions) : null;
   return impressions != null && impressions >= Number(minimumImpressions);
+}
+
+function passesMaxPostAge(post, maxPostAgeHours) {
+  const threshold = Number(maxPostAgeHours || 0);
+  if (!threshold) return true;
+  const createdAtMs = parseCreatedAtMs(post.createdAt);
+  if (!Number.isFinite(createdAtMs)) return false;
+  return Date.now() - createdAtMs <= threshold * 60 * 60 * 1000;
+}
+
+function parseCreatedAtMs(value) {
+  if (value == null || value === "") return Number.NaN;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function toTime(value) {
+  const time = parseCreatedAtMs(value);
+  return Number.isFinite(time) ? time : 0;
 }
 
 function toIso(value) {
