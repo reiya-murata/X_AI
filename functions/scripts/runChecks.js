@@ -160,6 +160,7 @@ function run() {
     "https://x.com/intent/tweet?in_reply_to=1810000000000000001&text=%E3%83%86%E3%82%B9%E3%83%88%E8%BF%94%E4%BF%A1",
   );
 
+  require("./runScheduledReplyOpportunityChecks.js");
   console.log("Phase 2 checks passed.");
 }
 

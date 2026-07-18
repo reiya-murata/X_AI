@@ -26,7 +26,14 @@ import { humanEvaluationTags, qualityFixtures } from "./qualityFixtureData";
 import { generateLocalReplyTest } from "./services/replyGenerator";
 import { openXReply } from "./services/xIntent";
 import { subscribeQualityEvaluations } from "./services/qualityEvaluations";
-import { getScheduledReplyOpportunityOverview, saveScheduledReplyOpportunitySetting, runScheduledReplyOpportunityNow } from "./services/scheduledReplyOpportunity";
+import {
+  getScheduledReplyOpportunityOverview,
+  saveScheduledReplyOpportunitySetting,
+  runScheduledReplyOpportunityNow,
+  saveScheduledReplyOpportunityDraft,
+  markScheduledReplyOpportunityOpened,
+  dismissScheduledReplyOpportunity,
+} from "./services/scheduledReplyOpportunity";
 import {
   processCandidateBatchWithAi,
   processCandidateWithAi,
@@ -65,6 +72,7 @@ import {
 
 const baseTabs = [
   { id: "dashboard", label: "候補", icon: MessageSquareReply },
+  { id: "drafts", label: "返信下書き", icon: ClipboardList },
   { id: "excluded", label: "除外一覧", icon: ListFilter },
   { id: "test", label: "生成テスト", icon: Sparkles },
   { id: "identity", label: "発信プロフィール", icon: Settings },
@@ -501,12 +509,16 @@ function App() {
       await saveScheduledReplyOpportunitySetting({
         scheduledReplyOpportunityEnabled: nextValue,
         minimumImpressions: scheduledOverview?.config?.minimumImpressions ?? 5000,
-        maxPostAgeHours: scheduledOverview?.config?.maxPostAgeHours ?? 6,
+        maxPostAgeHours: scheduledOverview?.config?.maxPostAgeHours ?? 24,
         generationLimitPerRun: scheduledOverview?.config?.generationLimitPerRun ?? 1,
-        dailyLimit: scheduledOverview?.config?.dailyLimit ?? 10,
+        dailyLimit: scheduledOverview?.config?.dailyLimit ?? 8,
         authorCooldownHours: scheduledOverview?.config?.authorCooldownHours ?? 24,
         postCooldownHours: scheduledOverview?.config?.postCooldownHours ?? 24,
-        minOpportunityScore: scheduledOverview?.config?.minOpportunityScore ?? 55,
+        minOpportunityScore: scheduledOverview?.config?.minOpportunityScore ?? 75,
+        qualityScoreMinimum: scheduledOverview?.config?.qualityScoreMinimum ?? 75,
+        unconfirmedLimit: scheduledOverview?.config?.unconfirmedLimit ?? 20,
+        operatingHoursStart: scheduledOverview?.config?.operatingHoursStart ?? 6,
+        operatingHoursEnd: scheduledOverview?.config?.operatingHoursEnd ?? 23,
         weights: scheduledOverview?.config?.weights || undefined,
       });
       notify(`Scheduled Reply Opportunity を${nextValue ? "ON" : "OFF"}にしました`);
@@ -534,7 +546,7 @@ function App() {
   async function handleDismissScheduledOpportunity(candidatePostId) {
     setLoading(true);
     try {
-      await transitionCandidateWorkflow({ candidatePostId, to: "dismissed" });
+      await dismissScheduledReplyOpportunity({ candidatePostId, draftId: candidatePostId, reason: "user_dismissed" });
       notify("見送りにしました");
       await refreshAll();
     } catch (error) {
@@ -550,9 +562,26 @@ function App() {
       notify("返信案がありません");
       return;
     }
+    try {
+      await markScheduledReplyOpportunityOpened({ candidatePostId: candidate.candidatePostId, draftId: candidate.candidatePostId, replyText: text });
+    } catch (error) {
+      notify(formatOperationalError(error, "opened_in_x の記録に失敗しました。"));
+    }
     const replyUrl = openXReply({ postId: candidate.candidatePostId, replyText: text });
     notify("Web IntentでXを開きました");
     return replyUrl;
+  }
+
+  async function handleSaveScheduledDraft(payload) {
+    await saveScheduledReplyOpportunityDraft({
+      draftId: payload.draftId || payload.candidatePostId,
+      candidatePostId: payload.candidatePostId,
+      replyDraft: payload.replyDraft,
+      replyText: payload.replyText,
+      qualityScore: payload.qualityScore,
+      status: payload.status || "reviewed",
+      selectionReason: payload.selectionReason,
+    });
   }
 
   const handleGenerate = () => {
@@ -777,12 +806,34 @@ function App() {
                 replyDraftLookup={replyDraftLookup}
               />
             )}
+            {activeTab === "drafts" && (
+              <ReplyDraftsPanel
+                overview={scheduledOverview}
+                onToggleEnabled={handleToggleScheduledReplyOpportunityEnabled}
+                onRunNow={handleRunScheduledReplyOpportunityNow}
+                onOpenIntent={handleOpenScheduledOpportunity}
+                onDismiss={handleDismissScheduledOpportunity}
+                onSaveDraft={handleSaveScheduledDraft}
+                loading={loading}
+              />
+            )}
             {activeTab === "excluded" && <ExcludedPanel posts={excluded} />}
             {activeTab === "test" && (
               <GenerationTest testPost={testPost} setTestPost={setTestPost} testResult={testResult} onGenerate={handleGenerate} notify={notify} />
             )}
             {activeTab === "identity" && <IdentityPanel />}
             {activeTab === "analysis" && <OperationsAnalysis candidates={candidates} />}
+            {activeTab === "drafts" && (
+              <ReplyDraftsPanel
+                overview={scheduledOverview}
+                onToggleEnabled={handleToggleScheduledReplyOpportunityEnabled}
+                onRunNow={handleRunScheduledReplyOpportunityNow}
+                onOpenIntent={handleOpenScheduledOpportunity}
+                onDismiss={handleDismissScheduledOpportunity}
+                onSaveDraft={handleSaveScheduledDraft}
+                loading={loading}
+              />
+            )}
             {activeTab === "scheduled" && (
               <ScheduledReplyOpportunityPanel
                 overview={scheduledOverview}
@@ -2004,6 +2055,287 @@ function ScheduledReplyOpportunityPanel({ overview, onToggleEnabled, onRunNow, o
   );
 }
 
+function ReplyDraftsPanel({ overview, onToggleEnabled, onRunNow, onOpenIntent, onDismiss, onSaveDraft, loading }) {
+  const config = overview?.config || {};
+  const drafts = useMemo(() => normalizeReplyDrafts(overview?.opportunities || []), [overview?.opportunities]);
+  const [selectedDraftId, setSelectedDraftId] = useState(() => drafts[0]?.draftId || drafts[0]?.candidatePostId || "");
+  const selectedDraft = drafts.find((item) => item.draftId === selectedDraftId || item.candidatePostId === selectedDraftId) || drafts[0] || null;
+  const [text, setText] = useState(selectedDraft?.generatedReply || selectedDraft?.replyDraft || selectedDraft?.replyText || "");
+  const [saving, setSaving] = useState(false);
+  const textareaRef = useRef(null);
+  const enabled = config.scheduledReplyOpportunityEnabled === true;
+  const buttonsDisabled = loading || saving;
+  const unreadCount = drafts.filter((item) => item.status === "unread" || !item.status || item.status === "reviewed").length;
+  const todayKey = formatJstDay(new Date());
+  const todayGenerated = drafts.filter((item) => toDraftDayKey(item.generatedAt || item.createdAt) === todayKey).length;
+  const todayOpened = drafts.filter((item) => toDraftDayKey(item.openedAt) === todayKey).length;
+  const lastGeneratedAt = drafts[0]?.generatedAt || drafts[0]?.createdAt || null;
+  const selectedWarnings = buildDraftWarnings(selectedDraft, text);
+
+  useEffect(() => {
+    setSelectedDraftId((current) => current && drafts.some((item) => item.draftId === current || item.candidatePostId === current) ? current : (drafts[0]?.draftId || drafts[0]?.candidatePostId || ""));
+  }, [drafts]);
+
+  useEffect(() => {
+    const next = selectedDraft?.generatedReply || selectedDraft?.replyDraft || selectedDraft?.replyText || "";
+    setText(next);
+  }, [selectedDraft?.draftId, selectedDraft?.candidatePostId, selectedDraft?.generatedReply, selectedDraft?.replyDraft, selectedDraft?.replyText]);
+
+  useEffect(() => {
+    if (!textareaRef.current) return;
+    textareaRef.current.style.height = "auto";
+    textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+  }, [text]);
+
+  const saveDraft = async () => {
+    if (!selectedDraft) return;
+    setSaving(true);
+    try {
+      await onSaveDraft({
+        draftId: selectedDraft.draftId || selectedDraft.candidatePostId,
+        candidatePostId: selectedDraft.candidatePostId,
+        replyDraft: text,
+        replyText: text,
+        qualityScore: selectedDraft.qualityScore ?? selectedDraft.opportunityScore ?? null,
+        status: "reviewed",
+        selectionReason: selectedDraft.selectionReason || selectedDraft.selectedReason || "",
+        actionType: "draft_edited",
+      });
+      notifyLocal("返信案を保存しました");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  async function notifyLocal(message) {
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new CustomEvent("codex-toast", { detail: message }));
+    }
+  }
+
+  const openReply = async () => {
+    if (!selectedDraft || !text.trim()) return;
+    if (selectedWarnings.length > 0) {
+      const confirmed = window.confirm("注意ありの下書きです。Xで開きますか？");
+      if (!confirmed) return;
+    }
+    setSaving(true);
+    try {
+      await onSaveDraft({
+        draftId: selectedDraft.draftId || selectedDraft.candidatePostId,
+        candidatePostId: selectedDraft.candidatePostId,
+        replyDraft: text,
+        replyText: text,
+        qualityScore: selectedDraft.qualityScore ?? selectedDraft.opportunityScore ?? null,
+        status: "opened_in_x",
+        selectionReason: selectedDraft.selectionReason || selectedDraft.selectedReason || "",
+        actionType: null,
+      });
+      await onOpenIntent({ ...selectedDraft, replyDraft: text, replyText: text });
+      notifyLocal("Xで返信画面を開きました");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const dismissDraft = async () => {
+    if (!selectedDraft) return;
+    setSaving(true);
+    try {
+      await onDismiss(selectedDraft.candidatePostId);
+      setSelectedDraftId(drafts.find((item) => item.candidatePostId !== selectedDraft.candidatePostId)?.draftId || drafts[0]?.draftId || "");
+      notifyLocal("見送りました");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const regenerateDraft = async () => {
+    if (!selectedDraft) return;
+    setSaving(true);
+    try {
+      await onRunNow();
+      notifyLocal("再生成を実行しました");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const bodyLength = text.length;
+  const textLimitReached = bodyLength > 280;
+  const qualityScore = Number(selectedDraft?.qualityScore ?? selectedDraft?.opportunityScore ?? 0);
+  const qualityLabel = qualityScore >= 85 ? "高品質" : qualityScore >= 70 ? "確認推奨" : "要修正";
+  const currentStatus = selectedDraft?.status || "unread";
+  return (
+    <div className="reply-draft-layout">
+      <section className="work-panel reply-draft-summary">
+        <div className="panel-title">
+          <div>
+            <h3>返信下書き</h3>
+            <span>未確認下書きを新しい順に確認し、Xで最短送信します。</span>
+          </div>
+          <span className={enabled ? "judge-pass" : "judge-warn"}>{enabled ? "ON" : "OFF"}</span>
+        </div>
+        <div className="reply-draft-metrics">
+          <article className="readiness-item warning"><span className="readiness-status">固定</span><div><strong>未確認件数</strong><p>{unreadCount}</p></div></article>
+          <article className="readiness-item warning"><span className="readiness-status">固定</span><div><strong>今日生成件数</strong><p>{todayGenerated}</p></div></article>
+          <article className="readiness-item warning"><span className="readiness-status">固定</span><div><strong>今日Xで開いた件数</strong><p>{todayOpened}</p></div></article>
+          <article className="readiness-item warning"><span className="readiness-status">固定</span><div><strong>最終生成時刻</strong><p>{formatDate(lastGeneratedAt)}</p></div></article>
+          <article className="readiness-item warning"><span className="readiness-status">固定</span><div><strong>背景生成</strong><p>{enabled ? "ON" : "OFF"}</p></div></article>
+        </div>
+        <div className="action-row">
+          <button type="button" className="quiet-action" onClick={onToggleEnabled} disabled={buttonsDisabled}>
+            <Settings size={17} />
+            {enabled ? "OFFにする" : "ONにする"}
+          </button>
+        </div>
+      </section>
+
+      <section className="reply-draft-shell">
+        <aside className="reply-draft-list" aria-label="未確認下書き一覧">
+          {drafts.length ? drafts.map((draft) => {
+            const isSelected = draft.draftId === selectedDraft?.draftId || draft.candidatePostId === selectedDraft?.candidatePostId;
+            return (
+              <button
+                key={draft.draftId || draft.candidatePostId}
+                type="button"
+                className={`reply-draft-list-item ${isSelected ? "selected" : ""}`}
+                onClick={() => setSelectedDraftId(draft.draftId || draft.candidatePostId)}
+              >
+                <strong>{draft.sourceAuthorName || draft.authorName || "投稿者不明"}</strong>
+                <span>@{draft.sourceAuthorUsername || draft.authorUsername || "-"}</span>
+                <p>{draft.generatedReply || draft.replyDraft || draft.replyText || "返信案なし"}</p>
+              </button>
+            );
+          }) : (
+            <div className="empty-state">
+              <CheckCircle2 size={28} />
+              <h3>返信下書きはまだありません</h3>
+              <p>バックグラウンド生成が動くとここに新しい下書きが並びます。</p>
+            </div>
+          )}
+        </aside>
+
+        <article className="reply-draft-card">
+          {selectedDraft ? (
+            <>
+              <div className="reply-draft-card-head">
+                <div>
+                  <p className="reply-draft-author">{selectedDraft.sourceAuthorName || selectedDraft.authorName || "投稿者不明"} <span>@{selectedDraft.sourceAuthorUsername || selectedDraft.authorUsername || "-"}</span></p>
+                  <p className="reply-draft-meta">{formatDate(selectedDraft.sourceCreatedAt || selectedDraft.createdAt)} ・ {formatImpressions(selectedDraft.impressions ?? selectedDraft.opportunityScore)}</p>
+                </div>
+                <span className={`quality-pill ${qualityScore >= 85 ? "good" : qualityScore >= 70 ? "warn" : "bad"}`}>{qualityScore || "?"}点</span>
+              </div>
+
+              <section className="reply-draft-block">
+                <strong>AI返信案</strong>
+                <textarea
+                  ref={textareaRef}
+                  value={text}
+                  onChange={(event) => setText(event.target.value)}
+                  rows={5}
+                  maxLength={280}
+                  aria-label="AI返信案"
+                />
+                <div className="reply-draft-meta-row">
+                  <span>{bodyLength}/280文字</span>
+                  <span>{qualityLabel}</span>
+                  <span>{currentStatus}</span>
+                </div>
+                {textLimitReached && <p className="reply-draft-warning">280文字を超えています。</p>}
+              </section>
+
+              <section className="reply-draft-block">
+                <strong>元投稿</strong>
+                <details open={selectedDraft.text?.length > 120 ? false : true}>
+                  <summary>投稿本文を表示</summary>
+                  <p>{selectedDraft.sourceText || selectedDraft.postText || selectedDraft.text || "本文なし"}</p>
+                </details>
+                <div className="reply-draft-meta-row">
+                  <span>投稿日: {formatDate(selectedDraft.sourceCreatedAt || selectedDraft.createdAt)}</span>
+                  <span>表示回数: {Number(selectedDraft.impressions || selectedDraft.metrics?.impressions || 0).toLocaleString()}</span>
+                </div>
+              </section>
+
+              <section className="reply-draft-block">
+                <strong>選定理由</strong>
+                <p>{selectedDraft.selectionReason || selectedDraft.selectedReason || "未設定"}</p>
+                {selectedWarnings.length > 0 && (
+                  <div className="reply-draft-warning-box">
+                    <AlertTriangle size={16} />
+                    <span>{selectedWarnings.join(" / ")}</span>
+                  </div>
+                )}
+              </section>
+
+              <div className="reply-draft-actions">
+                <button type="button" className="primary-action reply-draft-primary" onClick={openReply} disabled={buttonsDisabled || !text.trim()}>
+                  <ExternalLink size={18} />
+                  Xで返信
+                </button>
+                <div className="reply-draft-secondary-actions">
+                  <button type="button" className="quiet-action" onClick={saveDraft} disabled={buttonsDisabled}>編集を保存</button>
+                  <button type="button" className="quiet-action" onClick={async () => { await navigator.clipboard.writeText(text); }}>コピー</button>
+                  <button type="button" className="quiet-action" onClick={regenerateDraft} disabled={buttonsDisabled}>再生成</button>
+                  <button type="button" className="quiet-action" onClick={dismissDraft} disabled={buttonsDisabled}>見送る</button>
+                  <a className="quiet-action" href={selectedDraft.sourcePostUrl || selectedDraft.postUrl || "#"} target="_blank" rel="noreferrer">元投稿を開く</a>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="empty-state">
+              <Search size={28} />
+              <h3>表示できる下書きはありません</h3>
+              <p>生成された下書きがあると、ここで直接確認できます。</p>
+            </div>
+          )}
+        </article>
+      </section>
+    </div>
+  );
+}
+
+function normalizeReplyDrafts(drafts = []) {
+  return drafts
+    .map((item) => ({
+      ...item,
+      draftId: item.draftId || item.scheduledReplyOpportunityId || item.candidatePostId || "",
+      sourcePostId: item.sourcePostId || item.candidatePostId || "",
+      sourcePostUrl: item.sourcePostUrl || item.postUrl || "",
+      sourceText: item.sourceText || item.postText || "",
+      sourceAuthorName: item.sourceAuthorName || item.authorName || "",
+      sourceAuthorUsername: item.sourceAuthorUsername || item.authorUsername || "",
+      sourceCreatedAt: item.sourceCreatedAt || item.createdAt || null,
+      generatedReply: item.generatedReply || item.replyDraft || item.replyText || "",
+      qualityScore: Number(item.qualityScore ?? item.opportunityScore ?? 0) || 0,
+      opportunityScore: Number(item.opportunityScore ?? item.qualityScore ?? 0) || 0,
+    }))
+    .sort((a, b) => toDraftTime(b.generatedAt || b.createdAt) - toDraftTime(a.generatedAt || a.createdAt));
+}
+
+function toDraftDayKey(value) {
+  const time = toDraftTime(value);
+  if (!Number.isFinite(time)) return "";
+  return formatJstDay(new Date(time));
+}
+
+function toDraftTime(value) {
+  if (!value) return 0;
+  if (typeof value?.toDate === "function") return value.toDate().getTime();
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function buildDraftWarnings(draft, text) {
+  const warnings = [];
+  const sameAsSource = String(text || "").trim() === String(draft?.sourceText || draft?.postText || "").trim();
+  if (sameAsSource) warnings.push("相手の投稿の言い換え中心");
+  if ((draft?.qualityScore ?? draft?.opportunityScore ?? 0) < 70) warnings.push("確認推奨のスコア");
+  if (/プロフィールへ|相談ください|お問い合わせ/.test(text || "")) warnings.push("営業臭が強い");
+  if (/^わかります|^本当にそう|^そうですね/.test(text || "")) warnings.push("返答が薄い可能性");
+  return warnings;
+}
+
 function StatCard({ label, value, status }) {
   return (
     <article className="stat-card">
@@ -2023,6 +2355,19 @@ function formatDate(value) {
   const time = toTime(value);
   if (!Number.isFinite(time)) return "未取得";
   return new Intl.DateTimeFormat("ja-JP", { dateStyle: "short", timeStyle: "short" }).format(new Date(time));
+}
+
+function formatJstDay(value) {
+  const time = toTime(value);
+  if (!Number.isFinite(time)) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(time));
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
 }
 
 function formatNextScheduledRun(lastRunAt) {

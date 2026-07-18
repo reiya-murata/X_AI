@@ -34,7 +34,14 @@ const { normalizeHumanQualityEvaluation } = require("./src/phase3/humanEvaluatio
 const { saveHumanEvaluation, cleanupExpiredEvaluationFingerprints } = require("./src/phase3/humanEvaluationStore");
 const { evaluateServerEnvironment } = require("./src/environmentSafety");
 const { secretBindings, withSecrets } = require("./src/secrets");
-const { getScheduledReplyOpportunityConfig, saveScheduledReplyOpportunityConfig, runScheduledReplyOpportunity } = require("./src/scheduledReplyOpportunity");
+const {
+  getScheduledReplyOpportunityConfig,
+  saveScheduledReplyOpportunityConfig,
+  runScheduledReplyOpportunity,
+  updateScheduledReplyOpportunityDraft,
+  markScheduledReplyOpportunityOpened,
+  dismissScheduledReplyOpportunity,
+} = require("./src/scheduledReplyOpportunity");
 const {
   transitionCandidate,
   saveWorkflowDraft,
@@ -347,6 +354,44 @@ exports.saveScheduledReplyOpportunitySetting = onCall({ region: "asia-northeast1
 exports.runScheduledReplyOpportunityNow = onCall({ region: "asia-northeast1" }, async (request) => {
   requireAdmin(request);
   return runScheduledReplyOpportunity({ db, admin, force: true });
+});
+
+exports.saveScheduledReplyOpportunityDraft = onCall({ region: "asia-northeast1" }, async (request) => {
+  const user = requireAdmin(request);
+  const data = request.data || {};
+  return updateScheduledReplyOpportunityDraft({
+    db,
+    actorUid: user.uid,
+    draftId: String(data.draftId || data.candidatePostId || ""),
+    replyDraft: data.replyDraft ?? null,
+    replyText: data.replyText ?? null,
+    qualityScore: data.qualityScore ?? null,
+    status: data.status ?? null,
+    selectionReason: data.selectionReason ?? null,
+    actionType: String(data.actionType || "draft_edited"),
+  });
+});
+
+exports.markScheduledReplyOpportunityOpened = onCall({ region: "asia-northeast1" }, async (request) => {
+  const user = requireAdmin(request);
+  const data = request.data || {};
+  return markScheduledReplyOpportunityOpened({
+    db,
+    actorUid: user.uid,
+    draftId: String(data.draftId || data.candidatePostId || ""),
+    replyText: data.replyText ?? null,
+  });
+});
+
+exports.dismissScheduledReplyOpportunity = onCall({ region: "asia-northeast1" }, async (request) => {
+  const user = requireAdmin(request);
+  const data = request.data || {};
+  return dismissScheduledReplyOpportunity({
+    db,
+    actorUid: user.uid,
+    draftId: String(data.draftId || data.candidatePostId || ""),
+    reason: String(data.reason || "other"),
+  });
 });
 
 exports.fetchHomeTimelineNow = onCall(withSecrets(...secretBindings.xApi), async (request) => {

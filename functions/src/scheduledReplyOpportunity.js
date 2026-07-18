@@ -9,9 +9,13 @@ const { writeSafeOperationLog } = require("./logging/safeOperationLog");
 
 const CONFIG_ID = "scheduled-reply-opportunity-v1";
 const STATE_ID = "global";
-const DAILY_LIMIT = 10;
+const DAILY_LIMIT = 8;
 const WINDOW_MINUTES = 60;
 const TOP_GENERATIONS = 1;
+const DEFAULT_START_HOUR = 6;
+const DEFAULT_END_HOUR = 23;
+const DEFAULT_UNCONFIRMED_LIMIT = 20;
+const DEFAULT_QUALITY_SCORE_MINIMUM = 75;
 const DEFAULT_WEIGHTS = Object.freeze({
   freshness: 0.3,
   engagementRate: 0.25,
@@ -39,12 +43,16 @@ function defaultConfig() {
   return {
     scheduledReplyOpportunityEnabled: false,
     minimumImpressions: 5000,
-    maxPostAgeHours: 6,
+    maxPostAgeHours: 24,
     generationLimitPerRun: 1,
     dailyLimit: DAILY_LIMIT,
     authorCooldownHours: 24,
     postCooldownHours: 24,
-    minOpportunityScore: 55,
+    minOpportunityScore: DEFAULT_QUALITY_SCORE_MINIMUM,
+    qualityScoreMinimum: DEFAULT_QUALITY_SCORE_MINIMUM,
+    unconfirmedLimit: DEFAULT_UNCONFIRMED_LIMIT,
+    operatingHoursStart: DEFAULT_START_HOUR,
+    operatingHoursEnd: DEFAULT_END_HOUR,
     weights: { ...DEFAULT_WEIGHTS },
     version: 1,
   };
@@ -63,7 +71,11 @@ function normalizeConfig(input = {}) {
     dailyLimit: Math.max(1, normalizeInteger(input.dailyLimit, fallback.dailyLimit)),
     authorCooldownHours: Math.max(1, normalizeInteger(input.authorCooldownHours, fallback.authorCooldownHours)),
     postCooldownHours: Math.max(1, normalizeInteger(input.postCooldownHours, fallback.postCooldownHours)),
-    minOpportunityScore: normalizeInteger(input.minOpportunityScore, fallback.minOpportunityScore),
+    minOpportunityScore: normalizeInteger(input.minOpportunityScore ?? input.qualityScoreMinimum, fallback.minOpportunityScore),
+    qualityScoreMinimum: normalizeInteger(input.qualityScoreMinimum ?? input.minOpportunityScore, fallback.qualityScoreMinimum),
+    unconfirmedLimit: Math.max(1, normalizeInteger(input.unconfirmedLimit, fallback.unconfirmedLimit)),
+    operatingHoursStart: normalizeHour(input.operatingHoursStart, fallback.operatingHoursStart),
+    operatingHoursEnd: normalizeHour(input.operatingHoursEnd, fallback.operatingHoursEnd),
     weights: {
       freshness: normalizeWeight(weights.freshness, fallback.weights.freshness),
       engagementRate: normalizeWeight(weights.engagementRate, fallback.weights.engagementRate),
@@ -84,11 +96,19 @@ function normalizeInteger(value, fallback) {
   return Number.isFinite(num) && num >= 0 ? Math.round(num) : fallback;
 }
 
+function normalizeHour(value, fallback) {
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 0 && num <= 23 ? Math.round(num) : fallback;
+}
+
 async function runScheduledReplyOpportunity({ db, admin, now = new Date(), force = false } = {}) {
   assertRuntimeOperationAllowed(process.env);
   const config = await getScheduledReplyOpportunityConfig(db);
   if (!config.scheduledReplyOpportunityEnabled && !force) {
     return { ok: true, skipped: true, reason: "scheduled_reply_opportunity_disabled", config };
+  }
+  if (!force && !isWithinOperatingWindow(now, config)) {
+    return { ok: true, skipped: true, reason: "outside_operating_window", config };
   }
 
   const nowMs = now.getTime();
@@ -142,11 +162,11 @@ async function runScheduledReplyOpportunity({ db, admin, now = new Date(), force
   try {
     const candidates = await loadEligibleCandidates({ db, config, nowMs });
     if (candidates.length === 0) {
-    await finalizeRun({ db, stateRef, runRef, now, result: { status: "empty", selectedCount: 0, selected: [] } });
+      await finalizeRun({ db, stateRef, runRef, now, result: { status: "empty", selectedCount: 0, selected: [] } });
       return { ok: true, selectedCount: 0, opportunities: [] };
     }
 
-    const selected = candidates.slice(0, config.generationLimitPerRun).filter((candidate, index) => index < TOP_GENERATIONS);
+    const selected = candidates.slice(0, config.generationLimitPerRun).slice(0, TOP_GENERATIONS);
     const opportunities = [];
     for (const candidate of selected) {
       const beforeDrafts = await db.collection("replyDrafts").where("candidatePostId", "==", candidate.postId).get().catch(() => ({ docs: [] }));
@@ -169,14 +189,21 @@ async function runScheduledReplyOpportunity({ db, admin, now = new Date(), force
         updatedAt: Timestamp.fromDate(now),
         runKey,
         dayKey: jstKey.date,
-        status: "ready",
+        status: "reviewed",
         opportunityScore: candidate.opportunityScore,
+        qualityScore: candidate.opportunityScore,
         scoreComponents: candidate.scoreComponents,
+        selectionReason: candidate.selectedReason,
         selectedReason: candidate.selectedReason,
         excludedReasons: candidate.excludedReasons,
         replyDraftId: draftId,
+        generatedReply: aiResult.decision?.replies?.[aiResult.recommendedCandidateKey || "A"]?.text || aiResult.decision?.replies?.A?.text || "",
         replyText: candidate.recommendedReplyText || "",
         replyDraft: aiResult.decision?.replies?.[aiResult.recommendedCandidateKey || "A"]?.text || aiResult.decision?.replies?.A?.text || "",
+        generatedAt: Timestamp.fromDate(now),
+        generationModel: aiResult.adapterOutput?.model || null,
+        promptVersion: aiResult.adapterOutput?.promptVersion || null,
+        idempotencyKey: `${candidate.postId}_${jstKey.date}_${jstKey.hour}`,
         generationResult: {
           finalRecommendation: aiResult.finalRecommendation || null,
           recommendedCandidateKey: aiResult.recommendedCandidateKey || null,
@@ -185,6 +212,8 @@ async function runScheduledReplyOpportunity({ db, admin, now = new Date(), force
         },
         notificationSentAt: null,
         dismissedAt: null,
+        openedAt: null,
+        sentConfirmedAt: null,
         skippedAt: null,
       };
       await db.collection("scheduledReplyOpportunities").doc(candidate.postId).set(opportunity, { merge: true });
@@ -244,7 +273,7 @@ async function loadEligibleCandidates({ db, config, nowMs }) {
       && passesMaxPostAge(candidate, config.maxPostAgeHours);
     if (!hardFilterPass) continue;
     const score = computeOpportunityScore(candidate, { config, identity, ruleSet, nowMs, recentUsage: usedToday });
-    if (score.total < config.minOpportunityScore) {
+    if (score.total < config.qualityScoreMinimum) {
       continue;
     }
     candidate.opportunityScore = score.total;
@@ -254,7 +283,7 @@ async function loadEligibleCandidates({ db, config, nowMs }) {
     candidates.push(candidate);
   }
   candidates.sort((a, b) => b.opportunityScore - a.opportunityScore || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-  return candidates;
+  return candidates.slice(0, config.unconfirmedLimit);
 }
 
 async function loadRecentOpportunityState(db) {
@@ -383,6 +412,7 @@ function normalizeCandidate(doc) {
     hardFilter: data.hardFilter || { passed: false, exclusionReasons: [] },
     latestReplyDraftId: data.latestReplyDraftId || null,
     aiProcessing: data.aiProcessing || null,
+    recommendedReplyText: data.recommendedReplyText || "",
   };
 }
 
@@ -443,9 +473,136 @@ function summarizeConfig(config) {
     authorCooldownHours: config.authorCooldownHours,
     postCooldownHours: config.postCooldownHours,
     minOpportunityScore: config.minOpportunityScore,
+    qualityScoreMinimum: config.qualityScoreMinimum,
+    unconfirmedLimit: config.unconfirmedLimit,
+    operatingHoursStart: config.operatingHoursStart,
+    operatingHoursEnd: config.operatingHoursEnd,
     weights: config.weights,
     version: config.version,
   };
+}
+
+function isWithinOperatingWindow(now = new Date(), config = defaultConfig()) {
+  const hour = Number(now.toLocaleString("en-US", { hour: "2-digit", hour12: false, timeZone: "Asia/Tokyo" }));
+  const start = normalizeHour(config.operatingHoursStart, DEFAULT_START_HOUR);
+  const end = normalizeHour(config.operatingHoursEnd, DEFAULT_END_HOUR);
+  if (Number.isNaN(hour)) return false;
+  if (start === end) return true;
+  if (start < end) return hour >= start && hour <= end;
+  return hour >= start || hour <= end;
+}
+
+function buildOperatingWindowKey(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${lookup.year}${lookup.month}${lookup.day}_${lookup.hour}${lookup.minute}`;
+}
+
+async function updateScheduledReplyOpportunityDraft({ db, actorUid, draftId, replyDraft, replyText, qualityScore = null, status = null, selectionReason = null, actionType = "draft_edited" }) {
+  const normalizedId = String(draftId || "").trim();
+  if (!normalizedId) throw new HttpsError("invalid-argument", "返信下書きIDが必要です。");
+  const ref = db.collection("scheduledReplyOpportunities").doc(normalizedId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "返信下書きが見つかりません。");
+  const text = String(replyText ?? replyDraft ?? "").trim();
+  if (text && text.length > 280) throw new HttpsError("invalid-argument", "返信文は280文字以内で入力してください。");
+  const nextStatus = normalizeDraftStatus(status, snap.data().status);
+  await ref.set({
+    replyDraft: text || snap.data().replyDraft || "",
+    replyText: text || snap.data().replyText || "",
+    qualityScore: normalizeScore(qualityScore, snap.data().qualityScore),
+    status: nextStatus,
+    selectionReason: selectionReason || snap.data().selectionReason || "",
+    reviewedAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  if (actionType) {
+    await writeSafeOperationLog({
+      db,
+      actorUid,
+      actionType,
+      candidatePostId: normalizedId,
+      replyDraftId: normalizedId,
+      safeMetadata: {
+        action: actionType,
+        result: "success",
+        candidatePostId: normalizedId,
+      },
+      operationId: `${normalizedId}_${Date.now()}`,
+    });
+  }
+  return { ok: true, draftId: normalizedId, status: nextStatus, replyDraft: text };
+}
+
+async function markScheduledReplyOpportunityOpened({ db, actorUid, draftId, replyText }) {
+  const normalizedId = String(draftId || "").trim();
+  if (!normalizedId) throw new HttpsError("invalid-argument", "返信下書きIDが必要です。");
+  const ref = db.collection("scheduledReplyOpportunities").doc(normalizedId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "返信下書きが見つかりません。");
+  const text = String(replyText || snap.data().replyDraft || snap.data().replyText || "").trim();
+  await ref.set({
+    replyDraft: text,
+    replyText: text,
+    status: "opened_in_x",
+    openedAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  await writeSafeOperationLog({
+    db,
+    actorUid,
+    actionType: "web_intent_opened",
+    candidatePostId: normalizedId,
+    replyDraftId: normalizedId,
+    safeMetadata: { action: "web_intent_opened", result: "success", candidatePostId: normalizedId },
+    operationId: `${normalizedId}_opened_${Date.now()}`,
+  });
+  return { ok: true, draftId: normalizedId, status: "opened_in_x", replyText: text };
+}
+
+async function dismissScheduledReplyOpportunity({ db, actorUid, draftId, reason = "other" }) {
+  const normalizedId = String(draftId || "").trim();
+  if (!normalizedId) throw new HttpsError("invalid-argument", "返信下書きIDが必要です。");
+  const ref = db.collection("scheduledReplyOpportunities").doc(normalizedId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "返信下書きが見つかりません。");
+  await ref.set({
+    status: "dismissed",
+    dismissedAt: FieldValue.serverTimestamp(),
+    skippedAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  await writeSafeOperationLog({
+    db,
+    actorUid,
+    actionType: "scheduled_reply_opportunity_dismissed",
+    candidatePostId: normalizedId,
+    replyDraftId: normalizedId,
+    safeMetadata: { action: "scheduled_reply_opportunity_dismissed", result: "success", candidatePostId: normalizedId, source: reason },
+    operationId: `${normalizedId}_dismiss_${Date.now()}`,
+  });
+  return { ok: true, draftId: normalizedId, status: "dismissed" };
+}
+
+function normalizeDraftStatus(status, fallback) {
+  const allowed = new Set(["unread", "reviewed", "opened_in_x", "dismissed", "sent_confirmed", "expired"]);
+  const value = String(status || "").trim();
+  if (allowed.has(value)) return value;
+  return allowed.has(fallback) ? fallback : "reviewed";
+}
+
+function normalizeScore(value, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return Number.isFinite(Number(fallback)) ? Number(fallback) : null;
+  return Math.max(0, Math.min(100, Math.round(num)));
 }
 
 module.exports = {
@@ -460,4 +617,9 @@ module.exports = {
   formatJst,
   normalizeEngagementRate,
   normalizeImpressionScore,
+  isWithinOperatingWindow,
+  buildOperatingWindowKey,
+  updateScheduledReplyOpportunityDraft,
+  markScheduledReplyOpportunityOpened,
+  dismissScheduledReplyOpportunity,
 };
