@@ -88,7 +88,10 @@ function normalizeConfig(input = {}) {
 
 function normalizeWeight(value, fallback) {
   const num = Number(value);
-  return Number.isFinite(num) && num >= 0 ? num : fallback;
+  if (!Number.isFinite(num)) return fallback;
+  if (num < 0) return 0;
+  if (num > 1) return 1;
+  return Math.round(num * 1000) / 1000;
 }
 
 function normalizeInteger(value, fallback) {
