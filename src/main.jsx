@@ -98,7 +98,8 @@ const maxPostAgeOptions = [
   { value: 48, label: "48時間以内" },
 ];
 
-function getGenerationButtonLabel() {
+function getGenerationButtonLabel(canRunAiAction = true) {
+  if (!canRunAiAction) return "管理者ログインが必要";
   return runtimeInfo.openAi === "Real" ? "実AIで生成" : "モック生成";
 }
 
@@ -336,6 +337,7 @@ function App() {
 
   const autoLoginActive = shouldUseLocalQualityMode();
   const showingLocalBootstrap = autoLoginActive && localAuthPhase !== "ready";
+  const canRunAiAction = clientEnvironment.appEnv !== "production" || Boolean(authState.user && authState.admin);
   const topbarUserLabel = showingLocalBootstrap ? localAuthStatus || "ローカル評価環境を準備しています" : (authState.user ? `${authState.user.email || authState.user.uid}` : "未ログイン");
   const topbarAdminLabel = showingLocalBootstrap ? "admin確認中" : (authState.admin ? "admin" : "adminなし");
 
@@ -590,6 +592,10 @@ function App() {
   };
 
   async function handleAiAction(candidate, action) {
+    if (clientEnvironment.appEnv === "production" && (!authState.user || !authState.admin)) {
+      notify("管理者ログインが必要です");
+      return;
+    }
     setAiBusyId(candidate.postId);
     try {
       let result;
@@ -614,16 +620,21 @@ function App() {
       if (result) {
         setReplyDraftLookup((current) => ({ ...current, [candidate.postId]: result }));
       }
-      notify("AI処理を実行しました");
+      notify(action === "process" ? "AI処理を実行しました" : "手動確認を保存しました");
       await refreshAll();
     } catch (error) {
-      notify(formatOperationalError(error, "返信案の生成に失敗しました。ローカルモック設定またはOpenAI設定を確認してください。"));
+      const detail = [error?.code ? `code=${error.code}` : "", error?.message ? `message=${error.message}` : ""].filter(Boolean).join(" ");
+      notify(formatOperationalError(error, `返信案の生成に失敗しました。${detail ? `(${detail})` : ""}`));
     } finally {
       setAiBusyId("");
     }
   }
 
   async function handleBatchAi(limit = 10) {
+    if (clientEnvironment.appEnv === "production" && (!authState.user || !authState.admin)) {
+      notify("管理者ログインが必要です");
+      return;
+    }
     setLoading(true);
     try {
       const result = await processCandidateBatchWithAi({ limit });
@@ -796,16 +807,17 @@ function App() {
             {activeTab === "dashboard" && (
               <Dashboard
                 stats={stats}
-                candidates={candidates}
-                notify={notify}
-                setTestPost={setTestPost}
-                setActiveTab={setActiveTab}
-                onAiAction={handleAiAction}
-                onBatchAi={handleBatchAi}
-                aiBusyId={aiBusyId}
-                replyDraftLookup={replyDraftLookup}
-              />
-            )}
+              candidates={candidates}
+              notify={notify}
+              setTestPost={setTestPost}
+              setActiveTab={setActiveTab}
+              onAiAction={handleAiAction}
+              onBatchAi={handleBatchAi}
+              aiBusyId={aiBusyId}
+              replyDraftLookup={replyDraftLookup}
+              canRunAiAction={canRunAiAction}
+            />
+          )}
             {activeTab === "drafts" && (
               <ReplyDraftsPanel
                 overview={scheduledOverview}
@@ -1111,7 +1123,7 @@ function ConnectionPanel(props) {
   );
 }
 
-function Dashboard({ stats, candidates, notify, setTestPost, setActiveTab, onAiAction, onBatchAi, aiBusyId, replyDraftLookup }) {
+function Dashboard({ stats, candidates, notify, setTestPost, setActiveTab, onAiAction, onBatchAi, aiBusyId, replyDraftLookup, canRunAiAction }) {
   const [selectedId, setSelectedId] = useState("");
   const [statusFilter, setStatusFilter] = useState("active");
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -1147,12 +1159,18 @@ function Dashboard({ stats, candidates, notify, setTestPost, setActiveTab, onAiA
           <h3>返信作業キュー</h3>
           <span>候補を選び、生成・編集・送信確認まで進めます</span>
         </div>
+        {!canRunAiAction && (
+          <div className="workflow-warning">
+            <AlertTriangle size={18} />
+            <p>管理者ログインが必要です。Firebase Auth で管理者としてログインすると、AI生成と保存が使えます。</p>
+          </div>
+        )}
         <div className="action-row">
-          <button type="button" className="primary-action" onClick={() => onBatchAi(10)}>
+          <button type="button" className="primary-action" onClick={() => onBatchAi(10)} disabled={!canRunAiAction}>
             <Sparkles size={17} />
             最大10件まとめて生成
           </button>
-          <button type="button" className="quiet-action" onClick={() => onBatchAi(3)}>
+          <button type="button" className="quiet-action" onClick={() => onBatchAi(3)} disabled={!canRunAiAction}>
             <RefreshCw size={17} />
             3件だけ試す
           </button>
@@ -1173,7 +1191,7 @@ function Dashboard({ stats, candidates, notify, setTestPost, setActiveTab, onAiA
         <span>{visible.length}件</span>
         <div className="batch-actions"><button className="quiet-action" disabled={!selectedIds.length} onClick={() => runBatchStatus("queued", "生成待ち")}>生成待ちへ</button><button className="quiet-action" disabled={!selectedIds.length} onClick={() => runBatchStatus("dismissed", "不採用")}>不採用</button><button className="quiet-action" disabled={!selectedIds.length} onClick={() => runBatchStatus("archived", "保管")}>保管</button></div>
       </section>
-      {selected && <CandidateDetail candidate={selected} aiState={replyDraftLookup[selected.postId]} notify={notify} onClose={() => setSelectedId("")} onAiAction={onAiAction} busy={aiBusyId === selected.postId} onMove={(step) => setSelectedId(visible[selectedIndex + step]?.postId || selected.postId)} canPrevious={selectedIndex > 0} canNext={selectedIndex < visible.length - 1} />}
+      {selected && <CandidateDetail candidate={selected} aiState={replyDraftLookup[selected.postId]} notify={notify} onClose={() => setSelectedId("")} onAiAction={onAiAction} busy={aiBusyId === selected.postId} onMove={(step) => setSelectedId(visible[selectedIndex + step]?.postId || selected.postId)} canPrevious={selectedIndex > 0} canNext={selectedIndex < visible.length - 1} canRunAiAction={canRunAiAction} />}
       <section className="candidate-grid">
         {visible.length ? visible.map((candidate) => (
           <CandidateCard
@@ -1190,6 +1208,7 @@ function Dashboard({ stats, candidates, notify, setTestPost, setActiveTab, onAiA
             onToggle={() => setSelectedIds((current) => current.includes(candidate.postId) ? current.filter((id) => id !== candidate.postId) : [...current, candidate.postId])}
             compact={Boolean(selected)}
             selected={selected?.postId === candidate.postId}
+            canRunAiAction={canRunAiAction}
           />
         )) : <EmptyCandidates />}
       </section>
@@ -1207,7 +1226,7 @@ function EmptyCandidates() {
   );
 }
 
-function CandidateCard({ candidate, notify, setTestPost, setActiveTab, onAiAction, busy, aiState, onSelect, checked, onToggle, compact, selected }) {
+function CandidateCard({ candidate, notify, setTestPost, setActiveTab, onAiAction, busy, aiState, onSelect, checked, onToggle, compact, selected, canRunAiAction }) {
   const latestDraft = candidate.replyDrafts?.[0] || null;
   const hasReplyDraft = hasUsableReplyDraft(candidate, aiState);
   const shouldReply = resolveShouldReply(candidate, aiState);
@@ -1283,13 +1302,9 @@ function CandidateCard({ candidate, notify, setTestPost, setActiveTab, onAiActio
           <MessageSquareReply size={17} />
           確認・編集
         </button>
-        <button type="button" className="quiet-action" onClick={() => onAiAction(candidate, "process")} disabled={busy}>
+        <button type="button" className="quiet-action" onClick={() => onAiAction(candidate, "process")} disabled={busy || !canRunAiAction}>
           <Sparkles size={17} />
-          {getGenerationButtonLabel()}
-        </button>
-        <button type="button" className="quiet-action" onClick={() => onAiAction(candidate, "manual")} disabled={busy}>
-          <X size={17} />
-          手動確認へ
+          {getGenerationButtonLabel(canRunAiAction)}
         </button>
         <button type="button" className="icon-action" onClick={copyDraft} aria-label="文面をコピー" disabled={!hasReplyDraft}>
           <Clipboard size={17} />
@@ -1305,7 +1320,7 @@ function CandidateCard({ candidate, notify, setTestPost, setActiveTab, onAiActio
   );
 }
 
-function CandidateDetail({ candidate, aiState, notify, onClose, onAiAction, busy, onMove, canPrevious, canNext }) {
+function CandidateDetail({ candidate, aiState, notify, onClose, onAiAction, busy, onMove, canPrevious, canNext, canRunAiAction }) {
   const hasReplyDraft = hasUsableReplyDraft(candidate, aiState);
   const shouldReply = resolveShouldReply(candidate, aiState);
   const originalText = hasReplyDraft ? (candidate.recommendedReplyText || aiState?.decision?.replies?.[aiState?.recommendedCandidateKey || "A"]?.text || aiState?.adapterOutput?.replyText || "") : "";
@@ -1342,7 +1357,7 @@ function CandidateDetail({ candidate, aiState, notify, onClose, onAiAction, busy
     )}
     {hasWarnings && <div className="workflow-warning"><AlertTriangle size={18} /><div><strong>要確認</strong><p>{(candidate.aiDecision?.warnings || candidate.aiAssessment?.riskFlags || aiState?.adapterOutput?.warnings || []).join(" / ")}</p></div></div>}
     {(storedCandidateStatus === "generation_failed" || candidate.generationError || candidate.generationErrorCode) && (candidate.generationError || candidate.generationErrorCode) && <details className="technical-info"><summary>技術情報</summary><p>以前の生成失敗: {candidate.generationError || candidate.generationErrorCode}</p></details>}
-    {shouldReply ? <div className="action-row"><button className="quiet-action" onClick={save} disabled={saving || !draftId}>{saving ? "保存中" : "編集を保存"}</button><button className="quiet-action" onClick={() => setText(originalText)} disabled={saving}>元に戻す</button><button className="primary-action" onClick={openIntent} disabled={saving || !text.trim()}><ExternalLink size={17} />Web IntentでXを開く</button><button className="quiet-action" onClick={() => onAiAction(candidate, "process")} disabled={busy}>{getGenerationButtonLabel()}</button><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "dismissed" }), "不採用にしました")}>不採用</button></div> : <div className="action-row"><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "archived" }), "保管しました")}>保管</button><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "dismissed" }), "不採用にしました")}>不採用</button></div>}
+    {shouldReply ? <div className="action-row"><button className="quiet-action" onClick={save} disabled={saving || !draftId}>{saving ? "保存中" : "編集を保存"}</button><button className="quiet-action" onClick={() => setText(originalText)} disabled={saving}>元に戻す</button><button className="primary-action" onClick={openIntent} disabled={saving || !text.trim()}><ExternalLink size={17} />Web IntentでXを開く</button><button className="quiet-action" onClick={() => onAiAction(candidate, "process")} disabled={busy || !canRunAiAction}>{getGenerationButtonLabel(canRunAiAction)}</button><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "dismissed" }), "不採用にしました")}>不採用</button></div> : <div className="action-row"><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "archived" }), "保管しました")}>保管</button><button className="quiet-action" onClick={() => run(() => transitionCandidateWorkflow({ candidatePostId: candidate.postId, to: "dismissed" }), "不採用にしました")}>不採用</button></div>}
     <div className="detail-navigation"><button className="quiet-action" disabled={!canPrevious} onClick={() => onMove(-1)}><ChevronLeft size={17} />前の候補</button><button className="quiet-action" disabled={!canNext} onClick={() => onMove(1)}>次の候補<ChevronRight size={17} /></button></div>
     {showSendCheck && <div className="send-confirm"><h4>Xで返信を送信しましたか？</h4><div className="form-grid"><label>利用結果<select value={feedback} onChange={(event) => setFeedback(event.target.value)}>{Object.entries(feedbackLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>返信URL（任意）<input value={replyUrl} onChange={(event) => setReplyUrl(event.target.value)} placeholder="https://x.com/..." /></label><label>未送信の理由<select value={notSentReason} onChange={(event) => setNotSentReason(event.target.value)}>{Object.entries(notSentReasonLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div><div className="action-row"><button className="primary-action" onClick={() => recordSend(true)} disabled={saving}>送信した</button><button className="quiet-action" onClick={() => recordSend(false)} disabled={saving}>送信しなかった</button><button className="quiet-action" onClick={() => setShowSendCheck(false)}>あとで確認</button></div></div>}
     {candidateStatus === "sent_manual" && <OutcomeForm value={outcome} setValue={setOutcome} onSave={() => run(() => saveReplyOutcomeMetrics({ candidatePostId: candidate.postId, metrics: outcome }), "反応を記録しました")} saving={saving} />}

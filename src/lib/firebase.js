@@ -27,10 +27,12 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:000000000000:web:0000000000000000000000",
 };
 
-const requestedFirebase =
-  import.meta.env.VITE_USE_FIREBASE === "true" || import.meta.env.VITE_USE_FIREBASE_EMULATORS === "true";
 export const clientEnvironment = buildClientEnvironment(import.meta.env, window.location.hostname);
 export const environmentSafety = evaluateClientEnvironment(clientEnvironment);
+const requestedFirebase =
+  import.meta.env.VITE_USE_FIREBASE === "true"
+  || import.meta.env.VITE_USE_FIREBASE_EMULATORS === "true"
+  || (clientEnvironment.appEnv === "production" && Boolean(firebaseConfig.projectId));
 export const firebaseEnabled = requestedFirebase && environmentSafety.ok;
 
 const app = firebaseEnabled ? initializeApp(firebaseConfig) : null;
