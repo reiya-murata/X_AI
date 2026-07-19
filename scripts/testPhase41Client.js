@@ -13,7 +13,11 @@ assert.equal(evaluateClientEnvironment({ ...safeLocal, emulators: false }).ok, f
 const productionDefaultsToRealOpenAi = buildClientEnvironment({ MODE: "production" }, "x-ai-322c9.web.app");
 assert.equal(productionDefaultsToRealOpenAi.openAiMock, false);
 assert.equal(productionDefaultsToRealOpenAi.realOpenAi, true);
+assert.equal(productionDefaultsToRealOpenAi.xApiMock, false);
 const localDefaultsToMock = buildClientEnvironment({ MODE: "development" }, "localhost");
 assert.equal(localDefaultsToMock.openAiMock, true);
 assert.equal(localDefaultsToMock.realOpenAi, false);
-console.log(JSON.stringify({ ok: true, startupGuardCases: 8 }));
+assert.equal(localDefaultsToMock.xApiMock, true);
+const aliasEnv = buildClientEnvironment({ MODE: "production", VITE_X_API_MOCK_MODE: "true" }, "x-ai-322c9.web.app");
+assert.equal(aliasEnv.xApiMock, true);
+console.log(JSON.stringify({ ok: true, startupGuardCases: 10 }));

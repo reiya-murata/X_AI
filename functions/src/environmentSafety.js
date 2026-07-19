@@ -6,7 +6,7 @@ function evaluateServerEnvironment(env = process.env, mode = "local") {
   const firestoreEmulator = Boolean(env.FIRESTORE_EMULATOR_HOST);
   const authEmulator = Boolean(env.FIREBASE_AUTH_EMULATOR_HOST);
   const openAiMock = production ? env.OPENAI_MOCK_MODE === "true" : env.OPENAI_MOCK_MODE !== "false";
-  const xApiMock = env.X_API_MOCK_MODE !== "false";
+  const xApiMock = production ? env.X_API_MOCK_MODE === "true" : env.X_API_MOCK_MODE !== "false";
   const allowRealOpenAiWithEmulator = env.ALLOW_REAL_OPENAI_WITH_EMULATOR === "true";
   const checks = [];
   const add = (id, status, message, action) => checks.push({ id, status, message, action });

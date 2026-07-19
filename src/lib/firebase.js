@@ -53,7 +53,7 @@ export const runtimeInfo = {
   firebase: firebaseEnabled,
   firebaseTarget: import.meta.env.VITE_USE_FIREBASE_EMULATORS === "true" ? "Emulator" : "Production",
   dataSource: firebaseEnabled ? "Firestore" : "Local Demo",
-  xApi: import.meta.env.VITE_USE_X_API_MOCK === "false" ? "Real" : "Mock",
+  xApi: clientEnvironment.xApiMock ? "Mock" : "Real",
   projectId: firebaseConfig.projectId,
   environmentSafety,
   appEnv: clientEnvironment.appEnv,

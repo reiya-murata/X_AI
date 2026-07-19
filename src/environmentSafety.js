@@ -33,6 +33,9 @@ export function buildClientEnvironment(importMetaEnv, hostname) {
   const appEnv = importMetaEnv.VITE_APP_ENV || importMetaEnv.MODE || "development";
   const production = appEnv === "production";
   const openAiMock = production ? importMetaEnv.VITE_OPENAI_MOCK_MODE === "true" : importMetaEnv.VITE_OPENAI_MOCK_MODE !== "false";
+  const xApiMock = production
+    ? (importMetaEnv.VITE_USE_X_API_MOCK ?? importMetaEnv.VITE_X_API_MOCK_MODE) === "true"
+    : (importMetaEnv.VITE_USE_X_API_MOCK ?? importMetaEnv.VITE_X_API_MOCK_MODE) !== "false";
   return {
     appEnv,
     functionsEnv: importMetaEnv.VITE_FUNCTIONS_ENV || "development",
@@ -43,7 +46,7 @@ export function buildClientEnvironment(importMetaEnv, hostname) {
     allowRealOpenAiWithEmulator: importMetaEnv.VITE_ALLOW_REAL_OPENAI_WITH_EMULATOR === "true",
     realOpenAiTests: importMetaEnv.VITE_ENABLE_REAL_OPENAI_TESTS === "true",
     qualityLab: importMetaEnv.VITE_ENABLE_QUALITY_LAB === "true",
-    xApiMock: importMetaEnv.VITE_USE_X_API_MOCK !== "false",
+    xApiMock,
     localAutoLogin: importMetaEnv.VITE_LOCAL_AUTO_LOGIN === "true",
     hostname,
   };
